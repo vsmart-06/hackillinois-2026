@@ -1,0 +1,17 @@
+# Backend
+backend/data/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
