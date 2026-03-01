@@ -7,10 +7,16 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import DEFAULT_SEMESTER, DEFAULT_YEAR
+from .config import DEFAULT_SEMESTER, DEFAULT_YEAR, MODAL_INFERENCE_URL, MODAL_WHISPER_URL
 from .cis_client import fetch_courses_for_subject, fetch_subjects, fetch_all_courses
 from .models import Course, SubjectSummary
-from .storage import load_courses, list_stored_subjects, save_courses
+from .storage import (
+    load_courses,
+    load_courses_for_subjects,
+    list_stored_subjects,
+    save_courses,
+)
+from .gpa import enrich_courses_with_gpa
 
 
 @asynccontextmanager
@@ -159,6 +165,84 @@ async def stored_courses(
 ):
     """Get courses for a subject from local JSON only."""
     return load_courses(year, semester, subject)
+
+
+# ---------- Modal: Whisper (speech) and Llama (recommendations) ----------
+
+
+@app.post("/api/transcribe")
+async def transcribe(payload: dict) -> dict:
+    """
+    Proxy to Modal Whisper. POST body: { "audio_b64": "<base64 audio>" }.
+    Requires MODAL_WHISPER_URL to be set (deploy with: modal deploy modal/modal_whisper.py).
+    """
+    if not MODAL_WHISPER_URL:
+        raise HTTPException(
+            status_code=503,
+            detail="Modal Whisper not configured. Set MODAL_WHISPER_URL and deploy modal/modal_whisper.py",
+        )
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post(MODAL_WHISPER_URL, json=payload)
+            r.raise_for_status()
+            return r.json()
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Modal Whisper error: {e!s}") from e
+
+
+@app.post("/api/recommend")
+async def recommend(payload: dict) -> dict:
+    """
+    Proxy to Modal Llama inference. POST body:
+    - goals (required): string
+    - completed_courses (required): list of strings e.g. ["CS 225", "MATH 241"]
+    - candidate_courses (optional): list of course dicts (subject, courseNumber, title, description, prerequisites).
+      If omitted, loaded from storage using year/semester and subject_codes (or all stored subjects).
+    - subject_codes (optional): list of subject codes to use as candidates when candidate_courses not provided
+    - year, semester (optional): for loading candidates from storage; default from config.
+
+    Requires MODAL_INFERENCE_URL to be set (deploy with: modal deploy modal/modal_inference.py).
+    """
+    if not MODAL_INFERENCE_URL:
+        raise HTTPException(
+            status_code=503,
+            detail="Modal inference not configured. Set MODAL_INFERENCE_URL and deploy modal/modal_inference.py",
+        )
+    goals = payload.get("goals", "")
+    completed_courses = payload.get("completed_courses", [])
+    candidate_courses = payload.get("candidate_courses")
+    subject_codes = payload.get("subject_codes")
+    year = payload.get("year", DEFAULT_YEAR)
+    semester = payload.get("semester", DEFAULT_SEMESTER)
+
+    if not goals:
+        raise HTTPException(status_code=400, detail="goals is required")
+
+    if candidate_courses is None:
+        candidate_courses = load_courses_for_subjects(year, semester, subject_codes)
+        if not candidate_courses:
+            raise HTTPException(
+                status_code=400,
+                detail="No candidate courses. Ingest courses (POST /api/ingest/all or /api/ingest/courses/{subject}) or pass candidate_courses.",
+            )
+
+    # Inject average GPA from local CSV so the LLM sees it
+    candidate_courses = enrich_courses_with_gpa(list(candidate_courses))
+
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            r = await client.post(
+                MODAL_INFERENCE_URL,
+                json={
+                    "goals": goals,
+                    "completed_courses": completed_courses,
+                    "candidate_courses": candidate_courses,
+                },
+            )
+            r.raise_for_status()
+            return r.json()
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Modal inference error: {e!s}") from e
 
 
 # ---------- Health ----------

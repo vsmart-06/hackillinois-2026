@@ -50,3 +50,17 @@ def list_stored_subjects(year: str, semester: str) -> list[str]:
     if not d.is_dir():
         return []
     return [p.stem for p in d.glob("*.json")]
+
+
+def load_courses_for_subjects(
+    year: str,
+    semester: str,
+    subjects: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Load courses for the given subjects (or all stored subjects if None). For recommendation candidate list."""
+    if subjects is None:
+        subjects = list_stored_subjects(year, semester)
+    out: list[dict[str, Any]] = []
+    for subj in subjects:
+        out.extend(load_courses(year, semester, subj))
+    return out
