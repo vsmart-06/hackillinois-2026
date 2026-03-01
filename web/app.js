@@ -24,6 +24,9 @@
         const j = JSON.parse(text);
         detail = j.detail?.detail || j.detail || text;
       } catch (_) {}
+      if (res.status === 401 && (detail || "").toLowerCase().includes("api key")) {
+        detail = "Missing or invalid API key. Run Setup city first — the key is filled in the API key field above. If you already set up a city, paste that key again.";
+      }
       throw new Error(detail);
     }
     return text ? JSON.parse(text) : null;
@@ -62,6 +65,10 @@
     document.getElementById("layerRestaurants").addEventListener("change", updateLayerVisibility);
     document.getElementById("layerDropoffs").addEventListener("change", updateLayerVisibility);
     document.getElementById("layerOrders").addEventListener("change", updateLayerVisibility);
+
+    document.getElementById("showApiKey").addEventListener("change", function () {
+      document.getElementById("apiKey").type = this.checked ? "text" : "password";
+    });
   }
 
   function updateLayerVisibility() {
@@ -216,11 +223,12 @@
         method: "POST",
         body: JSON.stringify(body),
       });
-      document.getElementById("apiKey").value = data.api_key || "";
+      const key = data.api_key || "";
+      document.getElementById("apiKey").value = key;
       currentCityId = data.city_id;
       showResult(
         "setupResult",
-        `City ${data.city_id} created. API key saved above. Click "Load topology" to draw the map.`,
+        "City created. API key saved in the field above — click Load topology to draw the map.",
         "success"
       );
     } catch (e) {

@@ -21,7 +21,7 @@ from relayroute.schemas.city import (
 from relayroute.schemas.common import APIError
 from relayroute.schemas.dropoff import DropoffSummary
 from relayroute.schemas.restaurant import RestaurantSummary
-from relayroute.schemas.zone import ZoneSummary
+from relayroute.schemas.zone import ZoneSummary, ZoneTopologySummary
 from relayroute.utils import generate_id
 from relayroute.services import ai_reasoning, clustering, dropoff_placement, maps
 
@@ -135,8 +135,8 @@ async def post_setup(
                     city_id=city_id,
                     zone_id=zone_id,
                     name=r.get("name", "Restaurant"),
-                    lat=r["lat"],
-                    lng=r["lng"],
+                    lat=float(r["lat"]),
+                    lng=float(r["lng"]),
                     address=r.get("address", ""),
                 )
             )
@@ -151,9 +151,9 @@ async def post_setup(
                 id=dp_id,
                 city_id=city_id,
                 zone_id=p["zone_id"],
-                lat=p["lat"],
-                lng=p["lng"],
-                address=f"{p['lat']:.6f}, {p['lng']:.6f}",
+                lat=float(p["lat"]),
+                lng=float(p["lng"]),
+                address=f"{float(p['lat']):.6f}, {float(p['lng']):.6f}",
                 capacity=body.dropoff_capacity,
                 current_load=0,
                 status="active",
@@ -217,7 +217,7 @@ async def get_setup(
     return CityTopologyResponse(
         city_id=city.id,
         city_name=city.name,
-        zones=[ZoneSummary.model_validate(z) for z in zones],
+        zones=[ZoneTopologySummary.model_validate(z) for z in zones],
         restaurants=[RestaurantSummary.model_validate(r) for r in restaurants],
         dropoff_points=[DropoffSummary.model_validate(d) for d in dropoffs],
         zone_reasoning=city.zone_reasoning,

@@ -1,7 +1,7 @@
 """City setup schemas."""
 from pydantic import BaseModel
 
-from relayroute.schemas.zone import ZoneSummary
+from relayroute.schemas.zone import ZoneSummary, ZoneTopologySummary
 from relayroute.schemas.restaurant import RestaurantSummary
 from relayroute.schemas.dropoff import DropoffSummary
 
@@ -37,7 +37,7 @@ class CityListResponse(BaseModel):
 class CityTopologyResponse(BaseModel):
     city_id: str
     city_name: str
-    zones: list[ZoneSummary]
+    zones: list[ZoneTopologySummary]
     restaurants: list[RestaurantSummary]
     dropoff_points: list[DropoffSummary]
     zone_reasoning: str
