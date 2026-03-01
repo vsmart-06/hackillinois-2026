@@ -42,11 +42,16 @@ class ZoneRestaurantSummary(BaseModel):
     lng: float
 
 
-class ZoneDropoffSummary(BaseModel):
-    id: str
+class ZoneDropoffBase(BaseModel):
     status: str
     current_load: int
     capacity: int
+
+
+class ZoneDropoffSummary(ZoneDropoffBase):
+    id: str
+    lat: float
+    lng: float
 
 
 class ZonePartnerSummary(BaseModel):
@@ -77,11 +82,8 @@ class ZonePartnersResponse(BaseModel):
     partners: list[ZonePartnerSummary]
 
 
-class ZoneDropoffPointSummary(BaseModel):
+class ZoneDropoffPointSummary(ZoneDropoffBase):
     dropoff_id: str
-    status: str
-    current_load: int
-    capacity: int
     lat: float
     lng: float
 

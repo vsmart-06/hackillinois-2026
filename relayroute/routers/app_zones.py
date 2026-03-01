@@ -75,7 +75,17 @@ async def get_zone(
         boundaries=zone.boundaries,
         restaurant_count=zone.restaurant_count,
         restaurants=[{"id": r.id, "name": r.name, "lat": r.lat, "lng": r.lng} for r in restaurants],
-        dropoff_points=[{"id": d.id, "status": d.status, "current_load": d.current_load, "capacity": d.capacity} for d in dropoffs],
+        dropoff_points=[
+            {
+                "id": d.id,
+                "status": d.status,
+                "current_load": d.current_load,
+                "capacity": d.capacity,
+                "lat": d.lat,
+                "lng": d.lng,
+            }
+            for d in dropoffs
+        ],
         active_partners=[{"partner_id": p.id, "name": p.name, "status": p.status} for p in partners],
         active_orders=[{"order_id": o.id, "status": o.status} for o in orders if o.status in ("pending", "in_transit")],
     )

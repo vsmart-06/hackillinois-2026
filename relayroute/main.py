@@ -88,7 +88,7 @@ def custom_openapi():
         for method, operation in operations.items():
             if method not in {"get", "post", "patch", "put", "delete"}:
                 continue
-            if path == "/app/setup" and method == "post":
+            if (path == "/app/setup" and method == "post") or (path == "/partner/register" and method == "post"):
                 continue
             operation["security"] = [{"ApiKeyAuth": []}]
 
