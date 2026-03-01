@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session
 from relayroute.database import get_db
 from relayroute.middleware.auth import verify_api_key
 from relayroute.models import City, DropoffPoint, Partner, Restaurant, Zone
-from relayroute.schemas.city import CitySetupRequest, CitySetupResponse
+from relayroute.schemas.city import (
+    CityListResponse,
+    CitySetupRequest,
+    CitySetupResponse,
+    CityTopologyResponse,
+)
 from relayroute.schemas.common import APIError
 from relayroute.schemas.dropoff import DropoffSummary
 from relayroute.schemas.restaurant import RestaurantSummary
@@ -31,7 +36,8 @@ def _hash_api_key(api_key: str) -> str:
     "/setup",
     response_model=CitySetupResponse,
     status_code=201,
-    summary="Set up a new city",
+    summary="Initialize a city topology",
+    description="Creates a new city graph by discovering restaurants, clustering zones, placing drop-off points, and returning the city API key plus generated topology.",
     responses={
         400: {"description": "Bad request", "model": APIError},
         500: {"description": "Server error", "model": APIError},
@@ -164,15 +170,19 @@ async def post_setup(
     )
 
 
-@router.get("/cities", summary="Get city for current API key")
-async def get_cities(city: City = Depends(verify_api_key), db: Session = Depends(get_db)):
-    """Return the city mapped to the provided X-API-Key (1:1 mapping)."""
+@router.get(
+    "/cities",
+    response_model=CityListResponse,
+    summary="List city mapped to this API key",
+    description="Returns the city account tied to the provided app API key. This is a 1:1 key-to-city mapping.",
+)
+async def get_cities(city: City = Depends(verify_api_key), db: Session = Depends(get_db)) -> CityListResponse:
     zones = db.execute(select(Zone).where(Zone.city_id == city.id)).scalars().all()
     active_partners = db.execute(
         select(Partner).where(Partner.city_id == city.id, Partner.status == "available")
     ).scalars().all()
-    return {
-        "cities": [
+    return CityListResponse(
+        cities=[
             {
                 "city_id": city.id,
                 "city_name": city.name,
@@ -180,18 +190,20 @@ async def get_cities(city: City = Depends(verify_api_key), db: Session = Depends
                 "active_partners": len(active_partners),
             }
         ]
-    }
+    )
 
 
 @router.get(
     "/setup",
+    response_model=CityTopologyResponse,
     summary="Get full city setup topology",
+    description="Returns zones, restaurants, drop-off points, and zone reasoning for the city identified by the app API key.",
     responses={404: {"description": "City not found", "model": APIError}},
 )
 async def get_setup(
     auth_city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
-):
+) -> CityTopologyResponse:
     city = db.execute(select(City).where(City.id == auth_city.id)).scalar_one_or_none()
     if city is None:
         raise HTTPException(
@@ -201,11 +213,11 @@ async def get_setup(
     zones = db.execute(select(Zone).where(Zone.city_id == auth_city.id)).scalars().all()
     restaurants = db.execute(select(Restaurant).where(Restaurant.city_id == auth_city.id)).scalars().all()
     dropoffs = db.execute(select(DropoffPoint).where(DropoffPoint.city_id == auth_city.id)).scalars().all()
-    return {
-        "city_id": city.id,
-        "city_name": city.name,
-        "zones": [ZoneSummary.model_validate(z) for z in zones],
-        "restaurants": [RestaurantSummary.model_validate(r) for r in restaurants],
-        "dropoff_points": [DropoffSummary.model_validate(d) for d in dropoffs],
-        "zone_reasoning": city.zone_reasoning,
-    }
+    return CityTopologyResponse(
+        city_id=city.id,
+        city_name=city.name,
+        zones=[ZoneSummary.model_validate(z) for z in zones],
+        restaurants=[RestaurantSummary.model_validate(r) for r in restaurants],
+        dropoff_points=[DropoffSummary.model_validate(d) for d in dropoffs],
+        zone_reasoning=city.zone_reasoning,
+    )

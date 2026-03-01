@@ -1,20 +1,25 @@
 """Routing schemas."""
 from pydantic import BaseModel
 
-from relayroute.schemas.order import RelayChainStep
+from relayroute.schemas.order import Coordinates, RelayChainStep
 
 
 class RoutingRequest(BaseModel):
-    city_id: str
-    origin: dict
-    destination: dict
+    origin: Coordinates
+    destination: Coordinates
+
+
+class EdgeWeightFactors(BaseModel):
+    traffic: float
+    capacity_penalty: float
+    partner_availability_penalty: float
 
 
 class EdgeWeight(BaseModel):
     from_zone: str
     to_zone: str
     weight: float
-    factors: dict
+    factors: EdgeWeightFactors
 
 
 class RoutingResponse(BaseModel):

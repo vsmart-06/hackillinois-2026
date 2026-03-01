@@ -21,3 +21,23 @@ class CitySetupResponse(BaseModel):
     restaurants: list[RestaurantSummary]
     dropoff_points: list[DropoffSummary]
     zone_reasoning: str
+
+
+class CitySummary(BaseModel):
+    city_id: str
+    city_name: str
+    zone_count: int
+    active_partners: int
+
+
+class CityListResponse(BaseModel):
+    cities: list[CitySummary]
+
+
+class CityTopologyResponse(BaseModel):
+    city_id: str
+    city_name: str
+    zones: list[ZoneSummary]
+    restaurants: list[RestaurantSummary]
+    dropoff_points: list[DropoffSummary]
+    zone_reasoning: str

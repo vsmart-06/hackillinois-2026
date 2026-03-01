@@ -48,6 +48,8 @@ def _zone_centroid(zone: Zone) -> tuple[float, float]:
 @router.get(
     "/path",
     response_model=RoutingResponse,
+    summary="Inspect computed routing path",
+    description="Computes relay path between origin and destination coordinates using the authenticated city's current zone graph.",
     responses={400: {"model": APIError}, 404: {"model": APIError}},
 )
 async def get_routing_path(
