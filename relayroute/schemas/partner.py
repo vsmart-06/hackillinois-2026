@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from relayroute.schemas.order import Coordinates
 
 
@@ -12,6 +12,17 @@ class PartnerStatusUpdate(BaseModel):
 
 
 class PartnerRegisterRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "Rohan Patil",
+                "phone": "+91-9000000001",
+                "zone_id": "zone_bandra_west_02",
+                "city_id": "city_mumbai_demo01",
+            }
+        }
+    )
+
     name: str
     phone: str
     zone_id: str
@@ -31,6 +42,15 @@ class PartnerRegisterResponse(BaseModel):
 
 
 class CompleteTaskRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "order_id": "ord_mum_7f3d9c10",
+                "dropoff_point_id": "dp_mum_khar_11",
+            }
+        }
+    )
+
     order_id: str
     dropoff_point_id: str
 

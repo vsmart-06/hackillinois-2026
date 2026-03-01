@@ -1,5 +1,5 @@
 """City setup schemas."""
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from relayroute.schemas.zone import ZoneSummary, ZoneTopologySummary
 from relayroute.schemas.restaurant import RestaurantSummary
@@ -7,6 +7,18 @@ from relayroute.schemas.dropoff import DropoffSummary
 
 
 class CitySetupRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "city_name": "Mumbai",
+                "epsilon_km": 0.8,
+                "min_restaurants_per_zone": 12,
+                "dropoff_spacing_km": 0.35,
+                "dropoff_capacity": 24,
+            }
+        }
+    )
+
     city_name: str
     epsilon_km: float = 0.5
     min_restaurants_per_zone: int = 10

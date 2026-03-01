@@ -23,6 +23,14 @@ class DropoffDetailResponse(DropoffSummary):
 
 
 class DropoffStatusUpdate(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status": "full",
+            }
+        }
+    )
+
     status: Literal["active", "full", "disabled"]
 
 

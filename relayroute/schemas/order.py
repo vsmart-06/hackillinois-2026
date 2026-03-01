@@ -5,6 +5,16 @@ from pydantic import BaseModel, ConfigDict
 
 
 class OrderRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "city_id": "city_mumbai_demo01",
+                "restaurant_id": "restaurant_bandra_17",
+                "delivery_address": "Flat 903, A Wing, Hiranandani Powai, Mumbai 400076",
+            }
+        }
+    )
+
     city_id: str
     restaurant_id: str
     delivery_address: str
