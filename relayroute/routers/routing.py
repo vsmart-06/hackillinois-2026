@@ -45,6 +45,19 @@ def _zone_centroid(zone: Zone) -> tuple[float, float]:
     return (lat, lng)
 
 
+def _resolve_zone_by_point(zones: list[Zone], lat: float, lng: float) -> Zone:
+    containing = [z for z in zones if _point_in_polygon(lat, lng, z.boundaries)]
+    if containing:
+        return min(
+            containing,
+            key=lambda z: (lat - _zone_centroid(z)[0]) ** 2 + (lng - _zone_centroid(z)[1]) ** 2,
+        )
+    return min(
+        zones,
+        key=lambda z: (lat - _zone_centroid(z)[0]) ** 2 + (lng - _zone_centroid(z)[1]) ** 2,
+    )
+
+
 @router.get(
     "/path",
     response_model=RoutingResponse,
@@ -73,24 +86,8 @@ async def get_routing_path(
         )
     ).scalars().all()
 
-    origin_zone = None
-    destination_zone = None
-    for z in zones:
-        if origin_zone is None and _point_in_polygon(origin_lat, origin_lng, z.boundaries):
-            origin_zone = z
-        if destination_zone is None and _point_in_polygon(destination_lat, destination_lng, z.boundaries):
-            destination_zone = z
-    if origin_zone is None:
-        origin_zone = min(
-            zones,
-            key=lambda z: (origin_lat - _zone_centroid(z)[0]) ** 2 + (origin_lng - _zone_centroid(z)[1]) ** 2,
-        )
-    if destination_zone is None:
-        destination_zone = min(
-            zones,
-            key=lambda z: (destination_lat - _zone_centroid(z)[0]) ** 2
-            + (destination_lng - _zone_centroid(z)[1]) ** 2,
-        )
+    origin_zone = _resolve_zone_by_point(zones, float(origin_lat), float(origin_lng))
+    destination_zone = _resolve_zone_by_point(zones, float(destination_lat), float(destination_lng))
 
     # Same-zone routes are direct destination deliveries (no relay handoff path).
     if origin_zone.id == destination_zone.id:

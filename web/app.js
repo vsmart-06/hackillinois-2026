@@ -178,11 +178,10 @@
 
   function drawRelayChain(relayChain, restaurantLatLng, deliveryLatLng) {
     layerOrderPaths.clearLayers();
-    if (!relayChain || !relayChain.length) return;
 
     const points = [];
     if (restaurantLatLng) points.push(restaurantLatLng);
-    relayChain.forEach((step) => {
+    (relayChain || []).forEach((step) => {
       const c = step.coords || step;
       const lat = c.lat ?? c[1];
       const lng = c.lng ?? c[0];

@@ -55,6 +55,19 @@ def _zone_centroid(zone: Zone) -> tuple[float, float]:
     return (lat, lng)
 
 
+def _resolve_zone_by_point(zones: list[Zone], lat: float, lng: float) -> Zone:
+    containing = [z for z in zones if _point_in_polygon(lat, lng, z.boundaries)]
+    if containing:
+        return min(
+            containing,
+            key=lambda z: (lat - _zone_centroid(z)[0]) ** 2 + (lng - _zone_centroid(z)[1]) ** 2,
+        )
+    return min(
+        zones,
+        key=lambda z: (lat - _zone_centroid(z)[0]) ** 2 + (lng - _zone_centroid(z)[1]) ** 2,
+    )
+
+
 @router.post(
     "/orders",
     response_model=OrderResponse,
@@ -105,25 +118,10 @@ async def create_order(
             detail={"error": "NOT_FOUND", "detail": f"No zones configured for city {body.city_id}"},
         )
 
-    origin_zone = next((z for z in zones if z.id == restaurant.zone_id), None)
-    if origin_zone is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": "NOT_FOUND", "detail": "Restaurant zone not found"},
-        )
-
-    destination_zone = None
-    for z in zones:
-        if _point_in_polygon(destination["lat"], destination["lng"], z.boundaries):
-            destination_zone = z
-            break
-    if destination_zone is None:
-        # Fallback to nearest zone centroid
-        destination_zone = min(
-            zones,
-            key=lambda z: (destination["lat"] - _zone_centroid(z)[0]) ** 2
-            + (destination["lng"] - _zone_centroid(z)[1]) ** 2,
-        )
+    # Use geometry-first zone resolution (with deterministic tie-break) so pathing
+    # is consistent even if polygons overlap near boundaries.
+    origin_zone = _resolve_zone_by_point(zones, float(restaurant.lat), float(restaurant.lng))
+    destination_zone = _resolve_zone_by_point(zones, float(destination["lat"]), float(destination["lng"]))
 
     if origin_zone.id == destination_zone.id:
         # Same-zone deliveries should be direct destination drops (no relay handoffs).

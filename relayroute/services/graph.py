@@ -6,6 +6,25 @@ import networkx as nx
 from relayroute.models import DropoffPoint, Zone
 
 
+def _point_in_polygon(lat: float, lng: float, polygon: dict) -> bool:
+    coords = (polygon or {}).get("coordinates", [[]])
+    if not coords or not coords[0]:
+        return False
+    ring = coords[0]
+    inside = False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        xi, yi = ring[i][0], ring[i][1]
+        xj, yj = ring[j][0], ring[j][1]
+        intersect = ((yi > lat) != (yj > lat)) and (
+            lng < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi
+        )
+        if intersect:
+            inside = not inside
+        j = i
+    return inside
+
+
 def _zone_centroid(boundaries: dict) -> tuple[float, float]:
     coords = (boundaries or {}).get("coordinates", [[]])
     if not coords or not coords[0]:
@@ -94,7 +113,17 @@ def path_to_relay_chain(
         candidates = dropoffs_by_zone.get(zone_id, [])
         if not candidates:
             raise RuntimeError(f"No active dropoff available in zone {zone_id}")
-        dp = min(candidates, key=_score_dropoff)
+        zone_obj = zones.get(zone_id)
+        if zone_obj is None:
+            raise RuntimeError(f"Zone {zone_id} not found for relay conversion")
+
+        in_zone_candidates = [
+            d for d in candidates if _point_in_polygon(float(d.lat), float(d.lng), zone_obj.boundaries)
+        ]
+        if not in_zone_candidates:
+            raise RuntimeError(f"No in-zone dropoff available in zone {zone_id}")
+
+        dp = min(in_zone_candidates, key=_score_dropoff)
         relay_chain.append(
             {
                 "zone_id": zone_id,
