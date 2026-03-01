@@ -133,44 +133,56 @@ def path_to_relay_chain(
     path: list[str],
     zones: dict,
     dropoffs: dict,
-    destination_lat: float | None = None,
-    destination_lng: float | None = None,
+    origin_lat: float | None = None,
+    origin_lng: float | None = None,
 ) -> list[dict]:
     """
     Convert zone path into relay chain [{zone_id, dropoff_point_id, coords}].
-    For each traversed zone, select the dropoff closest to final destination
-    (while still constrained to dropoffs in that zone).
+    For each zone transition, select a dropoff in the *next* zone that is
+    closest to the current handoff location (origin for first hop, then the
+    previously chosen dropoff).
     """
     dropoffs_by_zone: dict[str, list[dict]] = {}
     for d in dropoffs.values():
         dropoffs_by_zone.setdefault(d.zone_id, []).append(d)
 
-    def _score_dropoff(dp: DropoffPoint) -> float:
-        if destination_lat is None or destination_lng is None:
-            return 0.0
-        return (float(dp.lat) - float(destination_lat)) ** 2 + (float(dp.lng) - float(destination_lng)) ** 2
+    current_lat = float(origin_lat) if origin_lat is not None else None
+    current_lng = float(origin_lng) if origin_lng is not None else None
+
+    if len(path) < 2:
+        return []
 
     relay_chain: list[dict] = []
-    for zone_id in path:
-        candidates = dropoffs_by_zone.get(zone_id, [])
+    for i in range(len(path) - 1):
+        next_zone_id = path[i + 1]
+        candidates = dropoffs_by_zone.get(next_zone_id, [])
         if not candidates:
-            raise RuntimeError(f"No active dropoff available in zone {zone_id}")
-        zone_obj = zones.get(zone_id)
+            raise RuntimeError(f"No active dropoff available in next zone {next_zone_id}")
+        zone_obj = zones.get(next_zone_id)
         if zone_obj is None:
-            raise RuntimeError(f"Zone {zone_id} not found for relay conversion")
+            raise RuntimeError(f"Zone {next_zone_id} not found for relay conversion")
 
         in_zone_candidates = [
             d for d in candidates if _point_in_polygon(float(d.lat), float(d.lng), zone_obj.boundaries)
         ]
         if not in_zone_candidates:
-            raise RuntimeError(f"No in-zone dropoff available in zone {zone_id}")
+            raise RuntimeError(f"No in-zone dropoff available in next zone {next_zone_id}")
 
-        dp = min(in_zone_candidates, key=_score_dropoff)
+        if current_lat is None or current_lng is None:
+            cz_lat, cz_lng = _zone_centroid(zone_obj.boundaries)
+            current_lat, current_lng = cz_lat, cz_lng
+
+        dp = min(
+            in_zone_candidates,
+            key=lambda cand: (float(cand.lat) - current_lat) ** 2 + (float(cand.lng) - current_lng) ** 2,
+        )
         relay_chain.append(
             {
-                "zone_id": zone_id,
+                "zone_id": next_zone_id,
                 "dropoff_point_id": dp.id,
                 "coords": {"lat": dp.lat, "lng": dp.lng},
             }
         )
+        current_lat = float(dp.lat)
+        current_lng = float(dp.lng)
     return relay_chain

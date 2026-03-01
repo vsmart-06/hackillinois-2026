@@ -159,8 +159,8 @@ async def create_order(
                 path=path,
                 zones={z.id: z for z in zones},
                 dropoffs={d.id: d for d in dropoffs},
-                destination_lat=float(destination["lat"]),
-                destination_lng=float(destination["lng"]),
+                origin_lat=float(restaurant.lat),
+                origin_lng=float(restaurant.lng),
             )
         except Exception as exc:
             raise HTTPException(
