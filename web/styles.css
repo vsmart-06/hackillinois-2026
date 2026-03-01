@@ -74,6 +74,22 @@ body {
   box-shadow: 0 0 0 2px rgba(196, 90, 59, 0.15);
 }
 
+.api-key-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.api-key-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.api-key-row .show-key {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

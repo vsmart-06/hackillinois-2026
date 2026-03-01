@@ -19,8 +19,11 @@
       </section>
       <section class="form-group">
         <label>API key</label>
-        <input type="password" id="apiKey" placeholder="From setup or paste key" />
-        <p class="hint">Required for Load topology & Place order</p>
+        <div class="api-key-row">
+          <input type="password" id="apiKey" placeholder="Run Setup city first — key is filled automatically" autocomplete="off" />
+          <label class="checkbox show-key"><input type="checkbox" id="showApiKey" /> Show</label>
+        </div>
+        <p class="hint">Filled automatically after Setup city. Required for Load topology & Place order.</p>
       </section>
 
       <hr />
@@ -35,21 +38,21 @@
         <div class="form-row">
           <div class="form-group">
             <label>ε (km)</label>
-            <input type="number" id="epsilonKm" value="0.5" step="0.1" min="0.1" />
+            <input type="number" id="epsilonKm" value="0.3" step="0.1" min="0.1" />
           </div>
           <div class="form-group">
             <label>Min rest/zone</label>
-            <input type="number" id="minRestaurants" value="10" min="1" />
+            <input type="number" id="minRestaurants" value="3" min="1" />
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label>Dropoff spacing (km)</label>
-            <input type="number" id="dropoffSpacing" value="0.3" step="0.1" min="0.1" />
+            <input type="number" id="dropoffSpacing" value="0.25" step="0.1" min="0.1" />
           </div>
           <div class="form-group">
             <label>Dropoff capacity</label>
-            <input type="number" id="dropoffCapacity" value="20" min="1" />
+            <input type="number" id="dropoffCapacity" value="15" min="1" />
           </div>
         </div>
         <button type="button" id="btnSetup" class="btn btn-primary">Setup city</button>

@@ -1,13 +1,15 @@
 """
 DBSCAN zone partitioning and zone boundary computation.
+Voronoi regions are clipped to the city bounding box using Shapely.
 """
 from __future__ import annotations
 
 import math
 
 import numpy as np
-from sklearn.cluster import DBSCAN
 from scipy.spatial import Voronoi
+from shapely.geometry import Polygon, box
+from sklearn.cluster import DBSCAN
 
 
 def cluster_restaurants(
@@ -89,6 +91,12 @@ def _bbox_polygon(bbox: tuple[float, float, float, float]) -> list[tuple[float, 
     ]
 
 
+def _bbox_shapely(bbox: tuple[float, float, float, float]) -> Polygon:
+    """City bounding box as a Shapely polygon (minx, miny, maxx, maxy)."""
+    min_x, max_x, min_y, max_y = bbox
+    return box(min_x, min_y, max_x, max_y)
+
+
 def _close_ring(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
     if not points:
         return []
@@ -97,61 +105,43 @@ def _close_ring(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
     return points
 
 
-def _clip_polygon_to_bbox(
-    polygon: list[tuple[float, float]],
-    bbox: tuple[float, float, float, float],
+def _clip_voronoi_to_bbox(
+    poly_points: list[tuple[float, float]],
+    bbox_polygon: Polygon,
 ) -> list[tuple[float, float]]:
-    min_x, max_x, min_y, max_y = bbox
-
-    def clip_edge(
-        pts: list[tuple[float, float]],
-        inside_fn,
-        intersect_fn,
-    ) -> list[tuple[float, float]]:
-        if not pts:
+    """
+    Clip a Voronoi region to the city bounding box using Shapely intersection.
+    Returns the exterior ring of the clipped polygon, or empty list if invalid/empty.
+    """
+    if not poly_points or len(poly_points) < 3:
+        return []
+    try:
+        voronoi_poly = Polygon(poly_points)
+        if not voronoi_poly.is_valid:
+            voronoi_poly = voronoi_poly.buffer(0)
+        if voronoi_poly.is_empty:
             return []
-        output: list[tuple[float, float]] = []
-        s = pts[-1]
-        for e in pts:
-            if inside_fn(e):
-                if inside_fn(s):
-                    output.append(e)
-                else:
-                    output.append(intersect_fn(s, e))
-                    output.append(e)
-            elif inside_fn(s):
-                output.append(intersect_fn(s, e))
-            s = e
-        return output
-
-    def intersect_vertical(x_edge: float):
-        def _inner(s: tuple[float, float], e: tuple[float, float]) -> tuple[float, float]:
-            sx, sy = s
-            ex, ey = e
-            if abs(ex - sx) < 1e-12:
-                return (x_edge, sy)
-            t = (x_edge - sx) / (ex - sx)
-            return (x_edge, sy + t * (ey - sy))
-
-        return _inner
-
-    def intersect_horizontal(y_edge: float):
-        def _inner(s: tuple[float, float], e: tuple[float, float]) -> tuple[float, float]:
-            sx, sy = s
-            ex, ey = e
-            if abs(ey - sy) < 1e-12:
-                return (sx, y_edge)
-            t = (y_edge - sy) / (ey - sy)
-            return (sx + t * (ex - sx), y_edge)
-
-        return _inner
-
-    pts = polygon
-    pts = clip_edge(pts, lambda p: p[0] >= min_x, intersect_vertical(min_x))
-    pts = clip_edge(pts, lambda p: p[0] <= max_x, intersect_vertical(max_x))
-    pts = clip_edge(pts, lambda p: p[1] >= min_y, intersect_horizontal(min_y))
-    pts = clip_edge(pts, lambda p: p[1] <= max_y, intersect_horizontal(max_y))
-    return pts
+        intersected = voronoi_poly.intersection(bbox_polygon)
+        if intersected.is_empty:
+            return []
+        if intersected.geom_type == "Polygon":
+            coords = list(intersected.exterior.coords)
+            return [(float(x), float(y)) for x, y in coords]
+        if intersected.geom_type == "MultiPolygon":
+            # Use the polygon with largest area (main region)
+            best = max(intersected.geoms, key=lambda g: g.area)
+            coords = list(best.exterior.coords)
+            return [(float(x), float(y)) for x, y in coords]
+        if intersected.geom_type == "GeometryCollection":
+            polygons = [g for g in intersected.geoms if g.geom_type == "Polygon" and not g.is_empty]
+            if not polygons:
+                return []
+            best = max(polygons, key=lambda g: g.area)
+            coords = list(best.exterior.coords)
+            return [(float(x), float(y)) for x, y in coords]
+        return []
+    except Exception:
+        return []
 
 
 def _voronoi_finite_polygons_2d(vor: Voronoi, radius: float | None = None):
@@ -206,23 +196,23 @@ def _fallback_split_polygons(centroids: np.ndarray, bbox: tuple[float, float, fl
         return [_bbox_polygon(bbox)]
     if n == 2:
         c1, c2 = centroids[0], centroids[1]
-        if abs(c1[0] - c2[0]) >= abs(c1[1] - c2[1]):
-            mid_x = (c1[0] + c2[0]) / 2.0
+        if abs(float(c1[0]) - float(c2[0])) >= abs(float(c1[1]) - float(c2[1])):
+            mid_x = float((c1[0] + c2[0]) / 2.0)
             left = [(min_x, min_y), (mid_x, min_y), (mid_x, max_y), (min_x, max_y)]
             right = [(mid_x, min_y), (max_x, min_y), (max_x, max_y), (mid_x, max_y)]
             return [left, right] if c1[0] <= c2[0] else [right, left]
-        mid_y = (c1[1] + c2[1]) / 2.0
+        mid_y = float((c1[1] + c2[1]) / 2.0)
         bottom = [(min_x, min_y), (max_x, min_y), (max_x, mid_y), (min_x, mid_y)]
         top = [(min_x, mid_y), (max_x, mid_y), (max_x, max_y), (min_x, max_y)]
         return [bottom, top] if c1[1] <= c2[1] else [top, bottom]
 
     order = np.argsort(centroids[:, 0])
-    splits: list[float] = [min_x]
+    splits: list[float] = [float(min_x)]
     sorted_x = centroids[order, 0]
     for i in range(n - 1):
-        splits.append((sorted_x[i] + sorted_x[i + 1]) / 2.0)
-    splits.append(max_x)
-    polys = [None] * n
+        splits.append(float((sorted_x[i] + sorted_x[i + 1]) / 2.0))
+    splits.append(float(max_x))
+    polys: list[list[tuple[float, float]]] = [None] * n  # type: ignore[list-item]
     for rank, idx in enumerate(order):
         polys[idx] = [
             (splits[rank], min_y),
@@ -230,7 +220,7 @@ def _fallback_split_polygons(centroids: np.ndarray, bbox: tuple[float, float, fl
             (splits[rank + 1], max_y),
             (splits[rank], max_y),
         ]
-    return polys  # type: ignore[return-value]
+    return polys
 
 
 def compute_zone_boundaries(clusters: list[list[dict]]) -> list[dict]:
@@ -257,6 +247,7 @@ def compute_zone_boundaries(clusters: list[list[dict]]) -> list[dict]:
             centroids.append(pts.mean(axis=0))
     centroid_arr = np.array(centroids, dtype=float)
 
+    bbox_shapely = _bbox_shapely(bbox)
     polygons: list[list[tuple[float, float]]]
     if len(centroid_arr) < 3:
         polygons = _fallback_split_polygons(centroid_arr, bbox)
@@ -267,7 +258,7 @@ def compute_zone_boundaries(clusters: list[list[dict]]) -> list[dict]:
             polygons = []
             for region in regions:
                 poly = [(float(vertices[i][0]), float(vertices[i][1])) for i in region]
-                clipped = _clip_polygon_to_bbox(poly, bbox)
+                clipped = _clip_voronoi_to_bbox(poly, bbox_shapely)
                 polygons.append(clipped if clipped else _bbox_polygon(bbox))
         except Exception:
             jitter = np.array([[i * 1e-9, -i * 1e-9] for i in range(len(centroid_arr))], dtype=float)
@@ -277,14 +268,18 @@ def compute_zone_boundaries(clusters: list[list[dict]]) -> list[dict]:
                 polygons = []
                 for region in regions:
                     poly = [(float(vertices[i][0]), float(vertices[i][1])) for i in region]
-                    clipped = _clip_polygon_to_bbox(poly, bbox)
+                    clipped = _clip_voronoi_to_bbox(poly, bbox_shapely)
                     polygons.append(clipped if clipped else _bbox_polygon(bbox))
             except Exception:
                 polygons = _fallback_split_polygons(centroid_arr, bbox)
 
     geojson: list[dict] = []
+    bbox_ring = _close_ring(_bbox_polygon(bbox))
+    bbox_coords = [[float(x), float(y)] for x, y in bbox_ring]
     for poly in polygons:
         ring = _close_ring(poly)
-        coords = [[x, y] for x, y in ring]
-        geojson.append({"type": "Polygon", "coordinates": [coords] if coords else []})
+        coords = [[float(x), float(y)] for x, y in ring]
+        if not coords:
+            coords = bbox_coords
+        geojson.append({"type": "Polygon", "coordinates": [coords]})
     return geojson

@@ -11,6 +11,12 @@ class ZoneSummary(BaseModel):
     restaurant_count: int
 
 
+class ZoneTopologySummary(ZoneSummary):
+    """Zone with boundaries for map/topology responses."""
+
+    boundaries: dict
+
+
 class ZoneLoadResponse(BaseModel):
     zone_id: str
     city_id: str

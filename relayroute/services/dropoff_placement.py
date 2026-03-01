@@ -10,10 +10,10 @@ def _centroid(zone: dict) -> tuple[float, float]:
     boundaries = zone.get("boundaries") or {}
     coords = boundaries.get("coordinates", [[]])
     if not coords or not coords[0]:
-        return (zone.get("lat", 0.0), zone.get("lng", 0.0))
+        return (float(zone.get("lat", 0.0)), float(zone.get("lng", 0.0)))
     ring = coords[0]
-    lats = [p[1] for p in ring]
-    lngs = [p[0] for p in ring]
+    lats = [float(p[1]) for p in ring]
+    lngs = [float(p[0]) for p in ring]
     return (sum(lats) / len(lats), sum(lngs) / len(lngs))
 
 
@@ -30,14 +30,14 @@ def place_dropoff_points(
     n = len(zones)
     for i, z in enumerate(zones):
         c = _centroid(z)
-        result.append({"lat": c[0], "lng": c[1], "zone_id": z["id"]})
+        result.append({"lat": float(c[0]), "lng": float(c[1]), "zone_id": z["id"]})
     for i in range(n):
         for j in range(i + 1, n):
             zi, zj = zones[i], zones[j]
             ci = _centroid(zi)
             cj = _centroid(zj)
-            mid_lat = (ci[0] + cj[0]) / 2
-            mid_lng = (ci[1] + cj[1]) / 2
+            mid_lat = float((ci[0] + cj[0]) / 2)
+            mid_lng = float((ci[1] + cj[1]) / 2)
             result.append({"lat": mid_lat, "lng": mid_lng, "zone_id": zi["id"]})
             result.append({"lat": mid_lat, "lng": mid_lng, "zone_id": zj["id"]})
             dist_deg = math.sqrt((ci[0] - cj[0]) ** 2 + (ci[1] - cj[1]) ** 2)
@@ -48,8 +48,8 @@ def place_dropoff_points(
             steps = max(1, int(dist_km / spacing_km))
             for k in range(1, steps):
                 t = k / steps
-                lat = ci[0] + t * (cj[0] - ci[0])
-                lng = ci[1] + t * (cj[1] - ci[1])
+                lat = float(ci[0] + t * (cj[0] - ci[0]))
+                lng = float(ci[1] + t * (cj[1] - ci[1]))
                 result.append({"lat": lat, "lng": lng, "zone_id": zi["id"]})
                 result.append({"lat": lat, "lng": lng, "zone_id": zj["id"]})
     return result
