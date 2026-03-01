@@ -8,7 +8,7 @@ import math
 
 import numpy as np
 from scipy.spatial import Voronoi
-from shapely.geometry import Polygon, box
+from shapely.geometry import MultiPoint, Point, Polygon, box
 from sklearn.cluster import DBSCAN
 
 
@@ -97,6 +97,34 @@ def _bbox_shapely(bbox: tuple[float, float, float, float]) -> Polygon:
     return box(min_x, min_y, max_x, max_y)
 
 
+def _city_mask_from_clusters(clusters: list[list[dict]], bbox: tuple[float, float, float, float]) -> Polygon:
+    """
+    Build a non-rectangular city mask from all restaurant points.
+    Falls back to bbox when geometry is degenerate.
+    """
+    points: list[tuple[float, float]] = []
+    for c in clusters:
+        pts = _cluster_points(c)
+        for p in pts:
+            points.append((float(p[0]), float(p[1])))
+    if len(points) < 3:
+        return _bbox_shapely(bbox)
+    try:
+        hull = MultiPoint([Point(x, y) for x, y in points]).convex_hull
+        # Light outward buffer to avoid clipping near-edge restaurants.
+        buffered = hull.buffer(0.005)
+        if buffered.is_empty or buffered.geom_type not in {"Polygon", "MultiPolygon"}:
+            return _bbox_shapely(bbox)
+        mask = buffered.intersection(_bbox_shapely(bbox))
+        if mask.is_empty:
+            return _bbox_shapely(bbox)
+        if mask.geom_type == "MultiPolygon":
+            return max(mask.geoms, key=lambda g: g.area)
+        return mask
+    except Exception:
+        return _bbox_shapely(bbox)
+
+
 def _close_ring(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
     if not points:
         return []
@@ -139,6 +167,29 @@ def _clip_voronoi_to_bbox(
             best = max(polygons, key=lambda g: g.area)
             coords = list(best.exterior.coords)
             return [(float(x), float(y)) for x, y in coords]
+        return []
+    except Exception:
+        return []
+
+
+def _tiny_cell_around_centroid(
+    centroid: tuple[float, float],
+    city_mask: Polygon,
+) -> list[tuple[float, float]]:
+    """
+    Tiny fallback cell near centroid to avoid whole-bbox overlaps when one Voronoi
+    region cannot be clipped.
+    """
+    try:
+        cell = Point(float(centroid[0]), float(centroid[1])).buffer(0.003)
+        clipped = cell.intersection(city_mask)
+        if clipped.is_empty:
+            return []
+        if clipped.geom_type == "Polygon":
+            return [(float(x), float(y)) for x, y in clipped.exterior.coords]
+        if clipped.geom_type == "MultiPolygon":
+            best = max(clipped.geoms, key=lambda g: g.area)
+            return [(float(x), float(y)) for x, y in best.exterior.coords]
         return []
     except Exception:
         return []
@@ -247,7 +298,7 @@ def compute_zone_boundaries(clusters: list[list[dict]]) -> list[dict]:
             centroids.append(pts.mean(axis=0))
     centroid_arr = np.array(centroids, dtype=float)
 
-    bbox_shapely = _bbox_shapely(bbox)
+    city_mask = _city_mask_from_clusters(clusters, bbox)
     polygons: list[list[tuple[float, float]]]
     if len(centroid_arr) < 3:
         polygons = _fallback_split_polygons(centroid_arr, bbox)
@@ -256,19 +307,26 @@ def compute_zone_boundaries(clusters: list[list[dict]]) -> list[dict]:
             vor = Voronoi(centroid_arr)
             regions, vertices = _voronoi_finite_polygons_2d(vor)
             polygons = []
-            for region in regions:
+            for idx, region in enumerate(regions):
                 poly = [(float(vertices[i][0]), float(vertices[i][1])) for i in region]
-                clipped = _clip_voronoi_to_bbox(poly, bbox_shapely)
+                clipped = _clip_voronoi_to_bbox(poly, city_mask)
+                if not clipped:
+                    clipped = _tiny_cell_around_centroid((float(centroid_arr[idx][0]), float(centroid_arr[idx][1])), city_mask)
                 polygons.append(clipped if clipped else _bbox_polygon(bbox))
         except Exception:
-            jitter = np.array([[i * 1e-9, -i * 1e-9] for i in range(len(centroid_arr))], dtype=float)
+            jitter = np.array([[i * 5e-6, -i * 5e-6] for i in range(len(centroid_arr))], dtype=float)
             try:
                 vor = Voronoi(centroid_arr + jitter)
                 regions, vertices = _voronoi_finite_polygons_2d(vor)
                 polygons = []
-                for region in regions:
+                for idx, region in enumerate(regions):
                     poly = [(float(vertices[i][0]), float(vertices[i][1])) for i in region]
-                    clipped = _clip_voronoi_to_bbox(poly, bbox_shapely)
+                    clipped = _clip_voronoi_to_bbox(poly, city_mask)
+                    if not clipped:
+                        clipped = _tiny_cell_around_centroid(
+                            (float((centroid_arr + jitter)[idx][0]), float((centroid_arr + jitter)[idx][1])),
+                            city_mask,
+                        )
                     polygons.append(clipped if clipped else _bbox_polygon(bbox))
             except Exception:
                 polygons = _fallback_split_polygons(centroid_arr, bbox)

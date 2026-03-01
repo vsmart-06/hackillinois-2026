@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import networkx as nx
+from shapely.geometry import Polygon
 
 from relayroute.models import DropoffPoint, Zone
 
@@ -54,13 +55,54 @@ def build_graph(
             centroid=_zone_centroid(z.boundaries),
         )
 
-    # Zone-zone edges with travel-time base weight.
-    for a in zones:
-        for b in zones:
-            if a.id == b.id:
-                continue
-            weight = float(travel_times.get((a.id, b.id), 999.0))
-            graph.add_edge(a.id, b.id, weight=weight)
+    zone_by_id = {z.id: z for z in zones}
+
+    def _zone_polygon(z: Zone) -> Polygon | None:
+        coords = (z.boundaries or {}).get("coordinates", [[]])
+        if not coords or not coords[0] or len(coords[0]) < 4:
+            return None
+        try:
+            poly = Polygon(coords[0])
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if poly.is_empty:
+                return None
+            return poly
+        except Exception:
+            return None
+
+    polygons = {z.id: _zone_polygon(z) for z in zones}
+
+    # Build adjacency from polygon contact (touch/overlap/intersection).
+    adjacency: dict[str, set[str]] = {z.id: set() for z in zones}
+    for i, a in enumerate(zones):
+        pa = polygons.get(a.id)
+        for j in range(i + 1, len(zones)):
+            b = zones[j]
+            pb = polygons.get(b.id)
+            if pa is not None and pb is not None and (pa.touches(pb) or pa.intersects(pb)):
+                adjacency[a.id].add(b.id)
+                adjacency[b.id].add(a.id)
+
+    # Connectivity fallback: if a zone has no neighbors, connect to nearest 2 centroids.
+    centroids = {z.id: _zone_centroid(z.boundaries) for z in zones}
+    for z in zones:
+        if adjacency[z.id]:
+            continue
+        zc = centroids[z.id]
+        nearest = sorted(
+            (other.id for other in zones if other.id != z.id),
+            key=lambda oid: (zc[0] - centroids[oid][0]) ** 2 + (zc[1] - centroids[oid][1]) ** 2,
+        )[:2]
+        for oid in nearest:
+            adjacency[z.id].add(oid)
+            adjacency[oid].add(z.id)
+
+    # Zone-zone edges with travel-time base weight across adjacency only.
+    for a_id, nbrs in adjacency.items():
+        for b_id in nbrs:
+            weight = float(travel_times.get((a_id, b_id), 999.0))
+            graph.add_edge(a_id, b_id, weight=weight)
 
     # Keep dropoff data available for path-to-relay conversion.
     for d in active_dropoffs:
