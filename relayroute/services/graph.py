@@ -72,21 +72,29 @@ def path_to_relay_chain(
     path: list[str],
     zones: dict,
     dropoffs: dict,
+    destination_lat: float | None = None,
+    destination_lng: float | None = None,
 ) -> list[dict]:
     """
     Convert zone path into relay chain [{zone_id, dropoff_point_id, coords}].
-    Uses first available dropoff in each traversed zone.
+    For each traversed zone, select the dropoff closest to final destination
+    (while still constrained to dropoffs in that zone).
     """
     dropoffs_by_zone: dict[str, list[dict]] = {}
     for d in dropoffs.values():
         dropoffs_by_zone.setdefault(d.zone_id, []).append(d)
+
+    def _score_dropoff(dp: DropoffPoint) -> float:
+        if destination_lat is None or destination_lng is None:
+            return 0.0
+        return (float(dp.lat) - float(destination_lat)) ** 2 + (float(dp.lng) - float(destination_lng)) ** 2
 
     relay_chain: list[dict] = []
     for zone_id in path:
         candidates = dropoffs_by_zone.get(zone_id, [])
         if not candidates:
             continue
-        dp = candidates[0]
+        dp = min(candidates, key=_score_dropoff)
         relay_chain.append(
             {
                 "zone_id": zone_id,

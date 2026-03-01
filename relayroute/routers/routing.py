@@ -114,6 +114,8 @@ async def get_routing_path(
         path=path,
         zones={z.id: z for z in zones},
         dropoffs={d.id: d for d in dropoffs},
+        destination_lat=destination_lat,
+        destination_lng=destination_lng,
     )
 
     edge_weights: list[EdgeWeight] = []

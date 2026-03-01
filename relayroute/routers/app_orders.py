@@ -155,6 +155,8 @@ async def create_order(
         path=path,
         zones={z.id: z for z in zones},
         dropoffs={d.id: d for d in dropoffs},
+        destination_lat=float(destination["lat"]),
+        destination_lng=float(destination["lng"]),
     )
     estimated_handoffs = max(0, len(relay_chain) - 1)
 
