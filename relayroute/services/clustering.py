@@ -7,7 +7,7 @@ import math
 
 import numpy as np
 from sklearn.cluster import DBSCAN
-from scipy.spatial import ConvexHull
+from scipy.spatial import Voronoi
 
 
 def cluster_restaurants(
@@ -63,75 +63,228 @@ def cluster_restaurants(
     return [c for c in clusters if c]
 
 
-def compute_zone_boundaries(cluster: list[dict]) -> dict:
+def _cluster_points(cluster: list[dict]) -> np.ndarray:
+    pts = [(float(r["lng"]), float(r["lat"])) for r in cluster if r.get("lat") is not None and r.get("lng") is not None]
+    if not pts:
+        return np.empty((0, 2), dtype=float)
+    return np.array(pts, dtype=float)
+
+
+def _bbox_from_clusters(clusters: list[list[dict]], pad: float = 0.01) -> tuple[float, float, float, float]:
+    all_pts = np.vstack([p for p in (_cluster_points(c) for c in clusters) if len(p) > 0])
+    min_x = float(all_pts[:, 0].min()) - pad
+    max_x = float(all_pts[:, 0].max()) + pad
+    min_y = float(all_pts[:, 1].min()) - pad
+    max_y = float(all_pts[:, 1].max()) + pad
+    return (min_x, max_x, min_y, max_y)
+
+
+def _bbox_polygon(bbox: tuple[float, float, float, float]) -> list[tuple[float, float]]:
+    min_x, max_x, min_y, max_y = bbox
+    return [
+        (min_x, min_y),
+        (max_x, min_y),
+        (max_x, max_y),
+        (min_x, max_y),
+    ]
+
+
+def _close_ring(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    if not points:
+        return []
+    if points[0] != points[-1]:
+        return [*points, points[0]]
+    return points
+
+
+def _clip_polygon_to_bbox(
+    polygon: list[tuple[float, float]],
+    bbox: tuple[float, float, float, float],
+) -> list[tuple[float, float]]:
+    min_x, max_x, min_y, max_y = bbox
+
+    def clip_edge(
+        pts: list[tuple[float, float]],
+        inside_fn,
+        intersect_fn,
+    ) -> list[tuple[float, float]]:
+        if not pts:
+            return []
+        output: list[tuple[float, float]] = []
+        s = pts[-1]
+        for e in pts:
+            if inside_fn(e):
+                if inside_fn(s):
+                    output.append(e)
+                else:
+                    output.append(intersect_fn(s, e))
+                    output.append(e)
+            elif inside_fn(s):
+                output.append(intersect_fn(s, e))
+            s = e
+        return output
+
+    def intersect_vertical(x_edge: float):
+        def _inner(s: tuple[float, float], e: tuple[float, float]) -> tuple[float, float]:
+            sx, sy = s
+            ex, ey = e
+            if abs(ex - sx) < 1e-12:
+                return (x_edge, sy)
+            t = (x_edge - sx) / (ex - sx)
+            return (x_edge, sy + t * (ey - sy))
+
+        return _inner
+
+    def intersect_horizontal(y_edge: float):
+        def _inner(s: tuple[float, float], e: tuple[float, float]) -> tuple[float, float]:
+            sx, sy = s
+            ex, ey = e
+            if abs(ey - sy) < 1e-12:
+                return (sx, y_edge)
+            t = (y_edge - sy) / (ey - sy)
+            return (sx + t * (ex - sx), y_edge)
+
+        return _inner
+
+    pts = polygon
+    pts = clip_edge(pts, lambda p: p[0] >= min_x, intersect_vertical(min_x))
+    pts = clip_edge(pts, lambda p: p[0] <= max_x, intersect_vertical(max_x))
+    pts = clip_edge(pts, lambda p: p[1] >= min_y, intersect_horizontal(min_y))
+    pts = clip_edge(pts, lambda p: p[1] <= max_y, intersect_horizontal(max_y))
+    return pts
+
+
+def _voronoi_finite_polygons_2d(vor: Voronoi, radius: float | None = None):
+    if vor.points.shape[1] != 2:
+        raise ValueError("Requires 2D input")
+    new_regions: list[list[int]] = []
+    new_vertices = vor.vertices.tolist()
+    center = vor.points.mean(axis=0)
+    if radius is None:
+        radius = vor.points.ptp().max() * 2
+
+    all_ridges: dict[int, list[tuple[int, int, int]]] = {}
+    for (p1, p2), (v1, v2) in zip(vor.ridge_points, vor.ridge_vertices):
+        all_ridges.setdefault(p1, []).append((p2, v1, v2))
+        all_ridges.setdefault(p2, []).append((p1, v1, v2))
+
+    for p1, region_idx in enumerate(vor.point_region):
+        vertices = vor.regions[region_idx]
+        if all(v >= 0 for v in vertices):
+            new_regions.append(vertices)
+            continue
+
+        ridges = all_ridges.get(p1, [])
+        new_region = [v for v in vertices if v >= 0]
+        for p2, v1, v2 in ridges:
+            if v2 < 0:
+                v1, v2 = v2, v1
+            if v1 >= 0:
+                continue
+            tangent = vor.points[p2] - vor.points[p1]
+            tangent /= np.linalg.norm(tangent)
+            normal = np.array([-tangent[1], tangent[0]])
+            midpoint = vor.points[[p1, p2]].mean(axis=0)
+            direction = np.sign(np.dot(midpoint - center, normal)) * normal
+            far_point = vor.vertices[v2] + direction * radius
+            new_region.append(len(new_vertices))
+            new_vertices.append(far_point.tolist())
+
+        vs = np.asarray([new_vertices[v] for v in new_region])
+        c = vs.mean(axis=0)
+        angles = np.arctan2(vs[:, 1] - c[1], vs[:, 0] - c[0])
+        new_region = [v for _, v in sorted(zip(angles, new_region))]
+        new_regions.append(new_region)
+
+    return new_regions, np.asarray(new_vertices)
+
+
+def _fallback_split_polygons(centroids: np.ndarray, bbox: tuple[float, float, float, float]) -> list[list[tuple[float, float]]]:
+    min_x, max_x, min_y, max_y = bbox
+    n = len(centroids)
+    if n == 1:
+        return [_bbox_polygon(bbox)]
+    if n == 2:
+        c1, c2 = centroids[0], centroids[1]
+        if abs(c1[0] - c2[0]) >= abs(c1[1] - c2[1]):
+            mid_x = (c1[0] + c2[0]) / 2.0
+            left = [(min_x, min_y), (mid_x, min_y), (mid_x, max_y), (min_x, max_y)]
+            right = [(mid_x, min_y), (max_x, min_y), (max_x, max_y), (mid_x, max_y)]
+            return [left, right] if c1[0] <= c2[0] else [right, left]
+        mid_y = (c1[1] + c2[1]) / 2.0
+        bottom = [(min_x, min_y), (max_x, min_y), (max_x, mid_y), (min_x, mid_y)]
+        top = [(min_x, mid_y), (max_x, mid_y), (max_x, max_y), (min_x, max_y)]
+        return [bottom, top] if c1[1] <= c2[1] else [top, bottom]
+
+    order = np.argsort(centroids[:, 0])
+    splits: list[float] = [min_x]
+    sorted_x = centroids[order, 0]
+    for i in range(n - 1):
+        splits.append((sorted_x[i] + sorted_x[i + 1]) / 2.0)
+    splits.append(max_x)
+    polys = [None] * n
+    for rank, idx in enumerate(order):
+        polys[idx] = [
+            (splits[rank], min_y),
+            (splits[rank + 1], min_y),
+            (splits[rank + 1], max_y),
+            (splits[rank], max_y),
+        ]
+    return polys  # type: ignore[return-value]
+
+
+def compute_zone_boundaries(clusters: list[list[dict]]) -> list[dict]:
     """
-    Given a cluster of restaurants, compute a convex hull as a GeoJSON polygon.
-    Add a small buffer (0.01 degrees) around the hull.
-    Return GeoJSON-compatible dict.
+    Compute zone polygons using centroid-based Voronoi partitioning.
+
+    Steps:
+    1) Compute centroid for each DBSCAN cluster.
+    2) Build Voronoi regions from centroids.
+    3) Clip each region to the city's bounding box.
+    4) Return GeoJSON polygons in the same order as clusters.
     """
-    if len(cluster) < 3:
-        points = [(r["lat"], r["lng"]) for r in cluster if r.get("lat") is not None and r.get("lng") is not None]
-        if len(points) < 2:
-            if points:
-                lat, lng = points[0]
-                buffer = 0.01
-                return {
-                    "type": "Polygon",
-                    "coordinates": [[
-                        [lng - buffer, lat - buffer],
-                        [lng + buffer, lat - buffer],
-                        [lng + buffer, lat + buffer],
-                        [lng - buffer, lat + buffer],
-                        [lng - buffer, lat - buffer],
-                    ]],
-                }
-            return {"type": "Polygon", "coordinates": []}
-        if len(points) == 2:
-            (lat1, lng1), (lat2, lng2) = points
-            buffer = 0.01
-            return {
-                "type": "Polygon",
-                "coordinates": [[
-                    [lng1 - buffer, lat1 - buffer],
-                    [lng2 + buffer, lat1 - buffer],
-                    [lng2 + buffer, lat2 + buffer],
-                    [lng1 - buffer, lat2 + buffer],
-                    [lng1 - buffer, lat1 - buffer],
-                ]],
-            }
-    points = np.array([(r["lat"], r["lng"]) for r in cluster if r.get("lat") is not None and r.get("lng") is not None])
-    if len(points) < 3:
-        return compute_zone_boundaries([{"lat": p[0], "lng": p[1]} for p in points])
-    buffer = 0.01
-    try:
-        hull = ConvexHull(points)
-        vertices = points[hull.vertices]
-        expanded = []
-        centroid = points.mean(axis=0)
-        for v in vertices:
-            d = v - centroid
-            n = np.linalg.norm(d)
-            if n > 1e-10:
-                d = d / n * (n + buffer)
-            else:
-                d = np.array([buffer, buffer])
-            expanded.append(centroid + d)
-        ring = np.vstack([expanded, expanded[0:1]])
-        coords = [[float(p[1]), float(p[0])] for p in ring]
-        return {"type": "Polygon", "coordinates": [coords]}
-    except Exception:
-        # Collinear/degenerate points: fallback to buffered bounding box.
-        min_lat = float(points[:, 0].min()) - buffer
-        max_lat = float(points[:, 0].max()) + buffer
-        min_lng = float(points[:, 1].min()) - buffer
-        max_lng = float(points[:, 1].max()) + buffer
-        return {
-            "type": "Polygon",
-            "coordinates": [[
-                [min_lng, min_lat],
-                [max_lng, min_lat],
-                [max_lng, max_lat],
-                [min_lng, max_lat],
-                [min_lng, min_lat],
-            ]],
-        }
+    if not clusters:
+        return []
+
+    bbox = _bbox_from_clusters(clusters)
+    centroids: list[np.ndarray] = []
+    for cluster in clusters:
+        pts = _cluster_points(cluster)
+        if len(pts) == 0:
+            min_x, max_x, min_y, max_y = bbox
+            centroids.append(np.array([(min_x + max_x) / 2.0, (min_y + max_y) / 2.0]))
+        else:
+            centroids.append(pts.mean(axis=0))
+    centroid_arr = np.array(centroids, dtype=float)
+
+    polygons: list[list[tuple[float, float]]]
+    if len(centroid_arr) < 3:
+        polygons = _fallback_split_polygons(centroid_arr, bbox)
+    else:
+        try:
+            vor = Voronoi(centroid_arr)
+            regions, vertices = _voronoi_finite_polygons_2d(vor)
+            polygons = []
+            for region in regions:
+                poly = [(float(vertices[i][0]), float(vertices[i][1])) for i in region]
+                clipped = _clip_polygon_to_bbox(poly, bbox)
+                polygons.append(clipped if clipped else _bbox_polygon(bbox))
+        except Exception:
+            jitter = np.array([[i * 1e-9, -i * 1e-9] for i in range(len(centroid_arr))], dtype=float)
+            try:
+                vor = Voronoi(centroid_arr + jitter)
+                regions, vertices = _voronoi_finite_polygons_2d(vor)
+                polygons = []
+                for region in regions:
+                    poly = [(float(vertices[i][0]), float(vertices[i][1])) for i in region]
+                    clipped = _clip_polygon_to_bbox(poly, bbox)
+                    polygons.append(clipped if clipped else _bbox_polygon(bbox))
+            except Exception:
+                polygons = _fallback_split_polygons(centroid_arr, bbox)
+
+    geojson: list[dict] = []
+    for poly in polygons:
+        ring = _close_ring(poly)
+        coords = [[x, y] for x, y in ring]
+        geojson.append({"type": "Polygon", "coordinates": [coords] if coords else []})
+    return geojson

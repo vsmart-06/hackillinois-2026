@@ -79,10 +79,11 @@ async def post_setup(
     api_key_raw = secrets.token_urlsafe(32)
     api_key_hashed = _hash_api_key(api_key_raw)
     now = datetime.now(timezone.utc)
+    zone_boundaries = clustering.compute_zone_boundaries(clusters)
     zone_records: list[Zone] = []
     zone_id_by_index: dict[int, str] = {}
     for i, cluster in enumerate(clusters):
-        boundaries = clustering.compute_zone_boundaries(cluster)
+        boundaries = zone_boundaries[i] if i < len(zone_boundaries) else {"type": "Polygon", "coordinates": []}
         zone_id = generate_id("zone")
         zone_id_by_index[i] = zone_id
         z = Zone(
