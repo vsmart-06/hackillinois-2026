@@ -27,7 +27,7 @@ const ClassList = ({ courses, onAdd, onRemove, onUpdate }: ClassListProps) => {
         </span>
         <button
           onClick={onAdd}
-          className="flex items-center gap-1 rounded-lg bg-white/20 px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-white/30"
+          className="flex items-center gap-1 rounded-lg bg-white/20 px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-white/30"
         >
           <Plus size={12} />
           Add
