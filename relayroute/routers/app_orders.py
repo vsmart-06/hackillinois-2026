@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from relayroute.database import get_db
 from relayroute.middleware.auth import verify_api_key
-from relayroute.models import City, DropoffPoint, Order, Restaurant, Zone
+from relayroute.models import City, DropoffPoint, Order, Restaurant, TaskEvent, Zone
 from relayroute.schemas.common import APIError
 from relayroute.schemas.order import OrderRequest, OrderResponse, OrderStatusResponse
 from relayroute.services import graph, maps, relay
@@ -178,12 +178,15 @@ async def create_order(
 
 @router.get("/orders")
 async def list_orders(
+    status: str | None = None,
     city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
 ):
-    orders = db.execute(
-        select(Order).where(Order.city_id == city.id).order_by(Order.created_at.desc())
-    ).scalars().all()
+    stmt = select(Order).where(Order.city_id == city.id)
+    if status:
+        stmt = stmt.where(Order.status == status)
+    stmt = stmt.order_by(Order.created_at.desc())
+    orders = db.execute(stmt).scalars().all()
     return [
         {
             "order_id": o.id,
@@ -256,3 +259,37 @@ async def get_order_status(
         current_zone_id=order.current_zone_id,
         current_dropoff_id=order.current_dropoff_id,
     )
+
+
+@router.get(
+    "/orders/{order_id}/relay-history",
+    responses={404: {"model": APIError}},
+)
+async def get_relay_history(
+    order_id: str,
+    city: City = Depends(verify_api_key),
+    db: Session = Depends(get_db),
+):
+    order = db.execute(
+        select(Order).where(Order.id == order_id, Order.city_id == city.id)
+    ).scalar_one_or_none()
+    if order is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NOT_FOUND", "detail": f"Order {order_id} does not exist"},
+        )
+    events = db.execute(
+        select(TaskEvent).where(TaskEvent.order_id == order_id).order_by(TaskEvent.timestamp.asc())
+    ).scalars().all()
+    return {
+        "order_id": order_id,
+        "history": [
+            {
+                "event": e.event,
+                "partner_id": e.partner_id,
+                "dropoff_id": e.dropoff_id,
+                "timestamp": e.timestamp,
+            }
+            for e in events
+        ],
+    }

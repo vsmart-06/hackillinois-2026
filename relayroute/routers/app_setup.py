@@ -10,7 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from relayroute.database import get_db
-from relayroute.models import City, DropoffPoint, Restaurant, Zone
+from relayroute.middleware.auth import verify_api_key
+from relayroute.models import City, DropoffPoint, Partner, Restaurant, Zone
 from relayroute.schemas.city import CitySetupRequest, CitySetupResponse
 from relayroute.schemas.common import APIError
 from relayroute.schemas.dropoff import DropoffSummary
@@ -163,9 +164,48 @@ async def post_setup(
     )
 
 
-@router.get("/cities", summary="List cities")
-async def get_cities(db: Session = Depends(get_db)):
-    """List all configured cities (ids and names)."""
-    result = db.execute(select(City).order_by(City.created_at.desc()))
-    cities = result.scalars().all()
-    return [{"id": c.id, "name": c.name} for c in cities]
+@router.get("/cities", summary="Get city for current API key")
+async def get_cities(city: City = Depends(verify_api_key), db: Session = Depends(get_db)):
+    """Return the city mapped to the provided X-API-Key (1:1 mapping)."""
+    zones = db.execute(select(Zone).where(Zone.city_id == city.id)).scalars().all()
+    active_partners = db.execute(
+        select(Partner).where(Partner.city_id == city.id, Partner.status == "available")
+    ).scalars().all()
+    return {
+        "cities": [
+            {
+                "city_id": city.id,
+                "city_name": city.name,
+                "zone_count": len(zones),
+                "active_partners": len(active_partners),
+            }
+        ]
+    }
+
+
+@router.get(
+    "/setup",
+    summary="Get full city setup topology",
+    responses={404: {"description": "City not found", "model": APIError}},
+)
+async def get_setup(
+    auth_city: City = Depends(verify_api_key),
+    db: Session = Depends(get_db),
+):
+    city = db.execute(select(City).where(City.id == auth_city.id)).scalar_one_or_none()
+    if city is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NOT_FOUND", "detail": f"City {auth_city.id} does not exist"},
+        )
+    zones = db.execute(select(Zone).where(Zone.city_id == auth_city.id)).scalars().all()
+    restaurants = db.execute(select(Restaurant).where(Restaurant.city_id == auth_city.id)).scalars().all()
+    dropoffs = db.execute(select(DropoffPoint).where(DropoffPoint.city_id == auth_city.id)).scalars().all()
+    return {
+        "city_id": city.id,
+        "city_name": city.name,
+        "zones": [ZoneSummary.model_validate(z) for z in zones],
+        "restaurants": [RestaurantSummary.model_validate(r) for r in restaurants],
+        "dropoff_points": [DropoffSummary.model_validate(d) for d in dropoffs],
+        "zone_reasoning": city.zone_reasoning,
+    }

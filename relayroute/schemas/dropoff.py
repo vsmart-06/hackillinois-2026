@@ -18,6 +18,10 @@ class DropoffSummary(BaseModel):
     status: str
 
 
+class DropoffDetailResponse(DropoffSummary):
+    active_orders: list[str]
+
+
 class DropoffStatusUpdate(BaseModel):
     status: Literal["active", "full", "disabled"]
 

@@ -16,6 +16,7 @@ class Partner(Base):
     zone_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("zones.id", ondelete="CASCADE"), nullable=False
     )
+    api_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="available")

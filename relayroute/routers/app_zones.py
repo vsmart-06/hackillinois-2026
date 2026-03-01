@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from relayroute.database import get_db
 from relayroute.middleware.auth import verify_api_key
-from relayroute.models import City, DropoffPoint, Order, Partner, Zone
+from relayroute.models import City, DropoffPoint, Order, Partner, Restaurant, Zone
 from relayroute.schemas.common import APIError
 from relayroute.schemas.zone import ZoneLoadResponse, ZoneSummary
 
@@ -25,14 +25,13 @@ async def list_zones(
 
 @router.get(
     "/zones/{zone_id}",
-    response_model=ZoneSummary,
     responses={404: {"model": APIError}},
 )
 async def get_zone(
     zone_id: str,
     city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
-) -> ZoneSummary:
+):
     zone = db.execute(
         select(Zone).where(Zone.id == zone_id, Zone.city_id == city.id)
     ).scalar_one_or_none()
@@ -41,7 +40,126 @@ async def get_zone(
             status_code=404,
             detail={"error": "NOT_FOUND", "detail": f"Zone {zone_id} does not exist"},
         )
-    return ZoneSummary.model_validate(zone)
+
+    restaurants = db.execute(
+        select(Restaurant).where(Restaurant.city_id == city.id, Restaurant.zone_id == zone_id)
+    ).scalars().all()
+    dropoffs = db.execute(
+        select(DropoffPoint).where(DropoffPoint.city_id == city.id, DropoffPoint.zone_id == zone_id)
+    ).scalars().all()
+    partners = db.execute(
+        select(Partner).where(Partner.city_id == city.id, Partner.zone_id == zone_id)
+    ).scalars().all()
+    orders = db.execute(
+        select(Order).where(Order.city_id == city.id, Order.current_zone_id == zone_id)
+    ).scalars().all()
+    return {
+        "zone_id": zone.id,
+        "city_id": zone.city_id,
+        "name": zone.name,
+        "boundaries": zone.boundaries,
+        "restaurant_count": zone.restaurant_count,
+        "restaurants": [{"id": r.id, "name": r.name, "lat": r.lat, "lng": r.lng} for r in restaurants],
+        "dropoff_points": [{"id": d.id, "status": d.status, "current_load": d.current_load, "capacity": d.capacity} for d in dropoffs],
+        "active_partners": [{"partner_id": p.id, "name": p.name, "status": p.status} for p in partners],
+        "active_orders": [{"order_id": o.id, "status": o.status} for o in orders if o.status in ("pending", "in_transit")],
+    }
+
+
+@router.get(
+    "/zones/{zone_id}/partners",
+    responses={404: {"model": APIError}},
+)
+async def get_zone_partners(
+    zone_id: str,
+    city: City = Depends(verify_api_key),
+    db: Session = Depends(get_db),
+):
+    zone = db.execute(select(Zone).where(Zone.id == zone_id, Zone.city_id == city.id)).scalar_one_or_none()
+    if zone is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NOT_FOUND", "detail": f"Zone {zone_id} does not exist"},
+        )
+    partners = db.execute(
+        select(Partner).where(Partner.city_id == city.id, Partner.zone_id == zone_id)
+    ).scalars().all()
+    return {
+        "zone_id": zone_id,
+        "partners": [{"partner_id": p.id, "name": p.name, "status": p.status} for p in partners],
+    }
+
+
+@router.get(
+    "/zones/{zone_id}/dropoffs",
+    responses={404: {"model": APIError}},
+)
+async def get_zone_dropoffs(
+    zone_id: str,
+    city: City = Depends(verify_api_key),
+    db: Session = Depends(get_db),
+):
+    zone = db.execute(select(Zone).where(Zone.id == zone_id, Zone.city_id == city.id)).scalar_one_or_none()
+    if zone is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NOT_FOUND", "detail": f"Zone {zone_id} does not exist"},
+        )
+    dropoffs = db.execute(
+        select(DropoffPoint).where(DropoffPoint.city_id == city.id, DropoffPoint.zone_id == zone_id)
+    ).scalars().all()
+    return {
+        "zone_id": zone_id,
+        "dropoff_points": [
+            {
+                "dropoff_id": d.id,
+                "status": d.status,
+                "current_load": d.current_load,
+                "capacity": d.capacity,
+                "lat": d.lat,
+                "lng": d.lng,
+            }
+            for d in dropoffs
+        ],
+    }
+
+
+@router.get(
+    "/zones/{zone_id}/orders",
+    responses={404: {"model": APIError}},
+)
+async def get_zone_orders(
+    zone_id: str,
+    city: City = Depends(verify_api_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    zone = db.execute(
+        select(Zone).where(Zone.id == zone_id, Zone.city_id == city.id)
+    ).scalar_one_or_none()
+    if zone is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NOT_FOUND", "detail": f"Zone {zone_id} does not exist"},
+        )
+    orders = db.execute(
+        select(Order).where(
+            Order.city_id == city.id,
+            Order.current_zone_id == zone_id,
+            Order.status.in_(["pending", "in_transit"]),
+        )
+    ).scalars().all()
+    return {
+        "zone_id": zone_id,
+        "orders": [
+            {
+                "order_id": o.id,
+                "status": o.status,
+                "current_dropoff_id": o.current_dropoff_id,
+                "remaining_handoffs": o.remaining_handoffs,
+            }
+            for o in orders
+        ],
+    }
 
 
 @router.get(
@@ -105,22 +223,3 @@ async def get_zone_load(
     )
 
 
-@router.get("/zones/load/summary")
-async def get_city_load_summary(
-    city: City = Depends(verify_api_key),
-    db: Session = Depends(get_db),
-):
-    """City-wide load snapshot across zones."""
-    zones = db.execute(select(Zone).where(Zone.city_id == city.id)).scalars().all()
-    zone_loads: list[ZoneLoadResponse] = []
-    for z in zones:
-        zone_loads.append(await get_zone_load(z.id, city=city, db=db))
-    return {
-        "city_id": city.id,
-        "zone_count": len(zone_loads),
-        "zones": [zl.model_dump() for zl in zone_loads],
-        "avg_utilization_ratio": round(
-            (sum(zl.utilization_ratio for zl in zone_loads) / len(zone_loads)) if zone_loads else 0.0,
-            4,
-        ),
-    }

@@ -1,16 +1,17 @@
 """Standalone routing endpoint (step 5)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from relayroute.database import get_db
+from relayroute.middleware.auth import verify_api_key
+from relayroute.models import City
 from relayroute.models import DropoffPoint, Zone
 from relayroute.schemas.common import APIError
 from relayroute.schemas.routing import EdgeWeight, RoutingResponse
 from relayroute.services import graph, maps
-from fastapi import Depends
 
 router = APIRouter()
 
@@ -50,22 +51,22 @@ def _zone_centroid(zone: Zone) -> tuple[float, float]:
     responses={400: {"model": APIError}, 404: {"model": APIError}},
 )
 async def get_routing_path(
-    city_id: str = Query(...),
     origin_lat: float = Query(...),
     origin_lng: float = Query(...),
     destination_lat: float = Query(...),
     destination_lng: float = Query(...),
+    city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
 ) -> RoutingResponse:
-    zones = db.execute(select(Zone).where(Zone.city_id == city_id)).scalars().all()
+    zones = db.execute(select(Zone).where(Zone.city_id == city.id)).scalars().all()
     if not zones:
         raise HTTPException(
             status_code=404,
-            detail={"error": "NOT_FOUND", "detail": f"No zones configured for city {city_id}"},
+            detail={"error": "NOT_FOUND", "detail": f"No zones configured for city {city.id}"},
         )
     dropoffs = db.execute(
         select(DropoffPoint).where(
-            DropoffPoint.city_id == city_id,
+            DropoffPoint.city_id == city.id,
             DropoffPoint.status == "active",
         )
     ).scalars().all()

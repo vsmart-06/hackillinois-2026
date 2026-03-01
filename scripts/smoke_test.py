@@ -131,6 +131,7 @@ def run_smoke(base_url: str) -> tuple[list[CheckResult], int]:
                     results.append(CheckResult(name=f"{method} {path}", ok=False, detail=str(exc)))
                     failures += 1
 
+            check("GET", "/app/setup", (200,), headers=headers)
             check("GET", "/app/zones", (200,), headers=headers)
             check("GET", "/app/orders", (200,), headers=headers)
 
@@ -190,13 +191,49 @@ def run_smoke(base_url: str) -> tuple[list[CheckResult], int]:
             if first_restaurant_coords:
                 lat, lng = first_restaurant_coords
                 params = {
-                    "city_id": city_id,
                     "origin_lat": lat,
                     "origin_lng": lng,
                     "destination_lat": lat + 0.02,
                     "destination_lng": lng + 0.02,
                 }
-                check("GET", "/routing/path", (200,), params=params)
+                check("GET", "/app/routing/path", (200,), headers=headers, params=params)
+
+            # Partner registration/auth smoke checks
+            if first_zone_id:
+                reg_payload = {
+                    "name": "Smoke Partner",
+                    "phone": "+1-000-000-0000",
+                    "zone_id": first_zone_id,
+                    "city_id": city_id,
+                }
+                r_reg = client.post(
+                    f"{base_url}/partner/register",
+                    json=reg_payload,
+                )
+                ok_reg = r_reg.status_code == 200
+                results.append(
+                    CheckResult(
+                        name="POST /partner/register",
+                        ok=ok_reg,
+                        status_code=r_reg.status_code,
+                        detail=None if ok_reg else r_reg.text[:400],
+                    )
+                )
+                if not ok_reg:
+                    failures += 1
+                else:
+                    partner_id = r_reg.json().get("partner_id")
+                    partner_api_key = r_reg.json().get("api_key")
+                    p_headers = {"X-API-Key": partner_api_key}
+                    check("GET", "/partner", (200,), headers=p_headers)
+                    check(
+                        "PATCH",
+                        "/partner/status",
+                        (200,),
+                        headers=p_headers,
+                        json={"status": "available"},
+                    )
+                    check("GET", "/partner/next-task", (200,), headers=p_headers)
 
     return results, failures
 
