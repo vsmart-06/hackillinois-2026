@@ -3,3 +3,4 @@
 __pycache__/
 CURSOR_SPEC.txt
 node_modules/
+zones.geojson
