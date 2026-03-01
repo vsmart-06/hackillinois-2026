@@ -1,5 +1,5 @@
 """Zone schemas."""
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ZoneSummary(BaseModel):
@@ -26,7 +26,13 @@ class ZoneLoadResponse(BaseModel):
     disabled_dropoffs: int
     total_capacity: int
     current_load: int
-    utilization_ratio: float
+    utilization_ratio: float = Field(
+        description=(
+            "Current load as a fraction of total capacity across all drop-off points in the zone. "
+            "0.0 is empty, 1.0 is fully saturated."
+        )
+    )
+    load_status: str = Field(description="Human-readable load classification: low, moderate, or high.")
     partners_available: int
     partners_carrying: int
     partners_offline: int

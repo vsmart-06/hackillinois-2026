@@ -239,6 +239,12 @@ async def get_zone_load(
     total_capacity = sum(d.capacity for d in dropoffs)
     current_load = sum(d.current_load for d in dropoffs)
     utilization = (current_load / total_capacity) if total_capacity > 0 else 0.0
+    if utilization < 0.4:
+        load_status = "low"
+    elif utilization < 0.75:
+        load_status = "moderate"
+    else:
+        load_status = "high"
 
     return ZoneLoadResponse(
         zone_id=zone_id,
@@ -250,6 +256,7 @@ async def get_zone_load(
         total_capacity=total_capacity,
         current_load=current_load,
         utilization_ratio=round(utilization, 4),
+        load_status=load_status,
         partners_available=sum(1 for p in partners if p.status == "available"),
         partners_carrying=sum(1 for p in partners if p.status == "carrying"),
         partners_offline=sum(1 for p in partners if p.status == "offline"),

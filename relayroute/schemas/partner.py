@@ -3,11 +3,19 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from relayroute.schemas.order import Coordinates
 
 
 class PartnerStatusUpdate(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status": "available",
+            }
+        }
+    )
+
     status: Literal["available", "carrying", "offline"]
 
 
@@ -25,8 +33,15 @@ class PartnerRegisterRequest(BaseModel):
 
     name: str
     phone: str
-    zone_id: str
-    city_id: str
+    zone_id: str = Field(
+        description=(
+            "The zone this partner will operate in. Partners only receive tasks within their assigned zone "
+            "and should not cross zone boundaries."
+        )
+    )
+    city_id: str = Field(
+        description="Must match the city associated with the app API key used during setup."
+    )
 
 
 class PartnerZoneInfo(BaseModel):
@@ -57,7 +72,12 @@ class CompleteTaskRequest(BaseModel):
 
 class NextTaskResponse(BaseModel):
     partner_id: str
-    task: PartnerTask | None
+    task: PartnerTask | None = Field(
+        description=(
+            "The partner's current task. Returns null if no task is currently assigned and the partner should "
+            "remain on standby."
+        )
+    )
 
 
 class CompleteTaskResponse(BaseModel):
@@ -82,8 +102,16 @@ class PartnerCurrentTask(BaseModel):
 
 
 class PartnerTask(BaseModel):
-    task_type: str
-    instructions: str
+    task_type: str = Field(
+        description=(
+            "The action the partner must perform. pickup_restaurant means collect from the originating restaurant. "
+            "pickup_dropoff means collect from a drop-off box. deliver_dropoff means deposit at the next drop-off box "
+            "in the relay chain."
+        )
+    )
+    instructions: str = Field(
+        description="Human-readable instruction string suitable for display in a partner mobile app."
+    )
     order_id: str
     dropoff_id: str | None
     zone_id: str | None

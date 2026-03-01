@@ -1,5 +1,5 @@
 """Routing schemas."""
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from relayroute.schemas.order import Coordinates, RelayChainStep
 
@@ -10,15 +10,29 @@ class RoutingRequest(BaseModel):
 
 
 class EdgeWeightFactors(BaseModel):
-    traffic: float
-    capacity_penalty: float
-    partner_availability_penalty: float
+    traffic: float = Field(
+        description=(
+            "Estimated travel time in minutes between zone centroids, sourced from Google Maps Distance Matrix API in real time."
+        )
+    )
+    capacity_penalty: float = Field(
+        description=(
+            "Additional weight applied when a drop-off point along this edge is near capacity. "
+            "Increases as load approaches the capacity ceiling."
+        )
+    )
+    partner_availability_penalty: float = Field(
+        description=(
+            "Additional weight applied when the destination zone has no available partners. "
+            "Penalizes routing through zones that cannot accept a handoff."
+        )
+    )
 
 
 class EdgeWeight(BaseModel):
     from_zone: str
     to_zone: str
-    weight: float
+    weight: float = Field(description="Composite edge weight used by Dijkstra's algorithm. Lower is better.")
     factors: EdgeWeightFactors
 
 

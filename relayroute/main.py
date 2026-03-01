@@ -1,6 +1,5 @@
 """
 RelayRoute API entrypoint.
-Zone-based relay delivery infrastructure for quick commerce platforms.
 """
 from pathlib import Path
 
@@ -44,9 +43,19 @@ OPENAPI_TAGS = [
     },
 ]
 
+"""
+RelayRoute is a plug-and-play relay delivery infrastructure API built for quick commerce platforms. Instead of a single delivery partner completing an end-to-end journey, RelayRoute divides cities into density-based zones and routes packages through a chain of partners — each operating only within their local zone, handing off at shared drop-off points.
+
+The API handles all zone partitioning, drop-off placement, dynamic path computation, and partner dispatch out of the box. Platforms integrate once and get a fully managed relay logistics layer. Partners interact through a separate authenticated surface that tells them exactly where to go and what to do at each step.
+
+To get started: call POST /app/setup with a city name to generate your zone topology and receive your API key. All subsequent requests use that key to place orders, manage partners, and monitor live delivery state.
+"""
+
 app = FastAPI(
     title="RelayRoute API",
-    description="Zone-based relay delivery infrastructure for quick commerce platforms.",
+    description=(
+        "RelayRoute is a plug-and-play relay delivery infrastructure API built for quick commerce platforms. Instead of a single delivery partner completing an end-to-end journey, RelayRoute divides cities into density-based zones and routes packages through a chain of partners — each operating only within their local zone, handing off at shared drop-off points.\n\nThe API handles all zone partitioning, drop-off placement, dynamic path computation, and partner dispatch out of the box. Platforms integrate once and get a fully managed relay logistics layer. Partners interact through a separate authenticated surface that tells them exactly where to go and what to do at each step.\n\nTo get started: call POST /app/setup with a city name to generate your zone topology and receive your API key. All subsequent requests use that key to place orders, manage partners, and monitor live delivery state."
+    ),
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",

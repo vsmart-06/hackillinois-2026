@@ -1,7 +1,7 @@
 """Order request/response schemas."""
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OrderRequest(BaseModel):
@@ -15,9 +15,13 @@ class OrderRequest(BaseModel):
         }
     )
 
-    city_id: str
-    restaurant_id: str
-    delivery_address: str
+    city_id: str = Field(description="The city identifier returned from POST /app/setup.")
+    restaurant_id: str = Field(
+        description="ID of the originating restaurant, returned in the restaurants array from setup or GET /app/setup."
+    )
+    delivery_address: str = Field(
+        description="Full street address of the delivery destination. Geocoded internally to determine the destination zone."
+    )
 
 
 class Coordinates(BaseModel):
@@ -26,9 +30,13 @@ class Coordinates(BaseModel):
 
 
 class RelayChainStep(BaseModel):
-    zone_id: str
-    dropoff_point_id: str
-    coords: Coordinates
+    zone_id: str = Field(description="The zone this step of the relay occurs in.")
+    dropoff_point_id: str = Field(
+        description="The drop-off box where the package should be deposited at the end of this step."
+    )
+    coords: Coordinates = Field(
+        description="Coordinates of the drop-off point for this step. Used by partner apps for navigation."
+    )
 
 
 class OrderResponse(BaseModel):
