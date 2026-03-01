@@ -12,6 +12,40 @@ from fastapi.staticfiles import StaticFiles
 from relayroute.routers import app_setup, app_zones, app_orders, app_dropoffs, app_partners, partner, routing
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+OPENAPI_TAGS = [
+    {
+        "name": "City Setup",
+        "description": "Configure a city's zone topology, restaurant clusters, and drop-off point placement in a single call.",
+    },
+    {
+        "name": "Zones",
+        "description": "Query real-time zone state including active partners, order load, and geographic boundaries.",
+    },
+    {
+        "name": "Orders",
+        "description": "Place orders and track their progress as they move through the relay chain hop by hop.",
+    },
+    {
+        "name": "Drop-off Points",
+        "description": "Monitor and manage the physical handoff boxes that connect zones in the relay network.",
+    },
+    {
+        "name": "Partner Management",
+        "description": "Register delivery partners and manage their zone assignment and real-time availability status.",
+    },
+    {
+        "name": "Partner",
+        "description": "Register delivery partners, manage their availability, and dispatch tasks within their assigned zone.",
+    },
+    {
+        "name": "Task Management",
+        "description": "Dispatch and complete pickup and drop-off tasks that move packages through the relay chain.",
+    },
+    {
+        "name": "Routing",
+        "description": "Inspect the live Dijkstra path computation with full edge weight transparency for any origin-destination pair.",
+    },
+]
 
 app = FastAPI(
     title="RelayRoute API",
@@ -19,6 +53,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    openapi_tags=OPENAPI_TAGS,
 )
 
 app.add_middleware(
