@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RelayRoute Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>RelayRoute</h1>
+      <p class="subtitle">Zone-based relay delivery</p>
+
+      <section class="form-group">
+        <label>API base URL</label>
+        <input type="text" id="apiUrl" value="http://localhost:8000" placeholder="http://localhost:8000" />
+      </section>
+      <section class="form-group">
+        <label>API key</label>
+        <input type="password" id="apiKey" placeholder="From setup or paste key" />
+        <p class="hint">Required for Load topology & Place order</p>
+      </section>
+
+      <hr />
+
+      <details class="panel" open>
+        <summary>Setup city</summary>
+        <p class="hint">One-time: fetch restaurants, cluster zones, place drop-offs. Save the returned API key.</p>
+        <div class="form-group">
+          <label>City name</label>
+          <input type="text" id="cityName" value="Bangalore" placeholder="e.g. Bangalore" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>ε (km)</label>
+            <input type="number" id="epsilonKm" value="0.5" step="0.1" min="0.1" />
+          </div>
+          <div class="form-group">
+            <label>Min rest/zone</label>
+            <input type="number" id="minRestaurants" value="10" min="1" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Dropoff spacing (km)</label>
+            <input type="number" id="dropoffSpacing" value="0.3" step="0.1" min="0.1" />
+          </div>
+          <div class="form-group">
+            <label>Dropoff capacity</label>
+            <input type="number" id="dropoffCapacity" value="20" min="1" />
+          </div>
+        </div>
+        <button type="button" id="btnSetup" class="btn btn-primary">Setup city</button>
+        <div id="setupResult" class="result"></div>
+      </details>
+
+      <details class="panel">
+        <summary>Load topology</summary>
+        <p class="hint">Load zones, restaurants & drop-offs for the city tied to your API key.</p>
+        <button type="button" id="btnLoad" class="btn">Load topology</button>
+        <div id="loadResult" class="result"></div>
+      </details>
+
+      <section class="form-group layer-toggles">
+        <label>Map layers</label>
+        <label class="checkbox"><input type="checkbox" id="layerZones" checked /> Zones</label>
+        <label class="checkbox"><input type="checkbox" id="layerRestaurants" checked /> Restaurants</label>
+        <label class="checkbox"><input type="checkbox" id="layerDropoffs" checked /> Drop-offs</label>
+        <label class="checkbox"><input type="checkbox" id="layerOrders" /> Order paths</label>
+      </section>
+
+      <hr />
+
+      <details class="panel">
+        <summary>Place order</summary>
+        <p class="hint">Pick a restaurant and delivery address. Relay chain will appear on the map.</p>
+        <div class="form-group">
+          <label>Restaurant</label>
+          <select id="restaurantSelect">
+            <option value="">— Load topology first —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Delivery address</label>
+          <input type="text" id="deliveryAddress" placeholder="e.g. 12 Indiranagar Main Rd, Bangalore" />
+        </div>
+        <button type="button" id="btnPlaceOrder" class="btn btn-primary">Place order</button>
+        <div id="orderResult" class="result"></div>
+      </details>
+
+      <details class="panel">
+        <summary>Orders</summary>
+        <p class="hint">Refresh and click an order to show its relay path on the map.</p>
+        <button type="button" id="btnRefreshOrders" class="btn">Refresh orders</button>
+        <div id="ordersList" class="orders-list"></div>
+      </details>
+    </aside>
+    <main class="map-container">
+      <div id="map"></div>
+      <div id="mapStatus" class="map-status"></div>
+    </main>
+  </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

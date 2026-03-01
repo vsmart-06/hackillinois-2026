@@ -16,6 +16,27 @@ rather than completing full end-to-end deliveries.
 
 ---
 
+## Running the API
+
+The API needs a **PostgreSQL** database. Set `DATABASE_URL` (e.g. in a `.env` file) then start the server:
+
+```bash
+# Copy env template and edit with your DB URL
+cp .env.example .env
+
+# Install and run (from project root, with venv activated)
+pip install -e .
+python -m uvicorn relayroute.main:app --host 127.0.0.1 --port 8000
+```
+
+- **DATABASE_URL** — Required. Example: `postgresql://user:password@localhost:5432/relayroute`. Create the database first (e.g. `createdb relayroute`), then run migrations: `alembic upgrade head`.
+- **GOOGLE_MAPS_API_KEY** — Optional but required for city setup (Places, Distance Matrix, Geocoding).
+- **OPENAI_API_KEY** — Optional; used for AI-generated zone reasoning on setup.
+
+The map UI is served at **http://localhost:8000/** when the API is running.
+
+---
+
 ## Authentication
 
 All app-facing endpoints require an `X-API-Key` header, scoped to a specific city configuration. Partner-facing endpoints authenticate via `partner_id` bound to the same city. A key issued for Mumbai cannot place orders in Bangalore.

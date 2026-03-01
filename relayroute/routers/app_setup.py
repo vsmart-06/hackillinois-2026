@@ -204,7 +204,10 @@ async def get_setup(
     return {
         "city_id": city.id,
         "city_name": city.name,
-        "zones": [ZoneSummary.model_validate(z) for z in zones],
+        "zones": [
+            {**ZoneSummary.model_validate(z).model_dump(), "boundaries": z.boundaries}
+            for z in zones
+        ],
         "restaurants": [RestaurantSummary.model_validate(r) for r in restaurants],
         "dropoff_points": [DropoffSummary.model_validate(d) for d in dropoffs],
         "zone_reasoning": city.zone_reasoning,
