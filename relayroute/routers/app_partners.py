@@ -23,6 +23,8 @@ def _hash_api_key(api_key: str) -> str:
 @router.post(
     "/register",
     response_model=PartnerRegisterResponse,
+    summary="Register a new delivery partner",
+    description="Creates a partner account for a zone in a city and returns a one-time plaintext partner API key for mobile authentication.",
     responses={404: {"model": APIError}},
 )
 async def register_partner(

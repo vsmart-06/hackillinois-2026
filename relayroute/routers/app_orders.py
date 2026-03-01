@@ -11,7 +11,14 @@ from relayroute.database import get_db
 from relayroute.middleware.auth import verify_api_key
 from relayroute.models import City, DropoffPoint, Order, Restaurant, TaskEvent, Zone
 from relayroute.schemas.common import APIError
-from relayroute.schemas.order import OrderRequest, OrderResponse, OrderStatusResponse
+from relayroute.schemas.order import (
+    OrderDetailResponse,
+    OrderListItem,
+    OrderRequest,
+    OrderResponse,
+    OrderStatusResponse,
+    RelayHistoryResponse,
+)
 from relayroute.services import graph, maps, relay
 from relayroute.utils import generate_id
 
@@ -51,6 +58,8 @@ def _zone_centroid(zone: Zone) -> tuple[float, float]:
 @router.post(
     "/orders",
     response_model=OrderResponse,
+    summary="Create an order and relay chain",
+    description="Creates a new order, computes an optimal relay path through zones, and initializes partner assignment for the first handoff.",
     responses={
         400: {"model": APIError},
         401: {"model": APIError},
@@ -176,12 +185,17 @@ async def create_order(
     )
 
 
-@router.get("/orders")
+@router.get(
+    "/orders",
+    response_model=list[OrderListItem],
+    summary="List orders for the authenticated city",
+    description="Returns all orders for the city from the app API key, optionally filtered by status.",
+)
 async def list_orders(
     status: str | None = None,
     city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
-):
+) -> list[OrderListItem]:
     stmt = select(Order).where(Order.city_id == city.id)
     if status:
         stmt = stmt.where(Order.status == status)
@@ -202,13 +216,16 @@ async def list_orders(
 
 @router.get(
     "/orders/{order_id}",
+    response_model=OrderDetailResponse,
+    summary="Get full order details",
+    description="Returns full order payload, including relay chain, current drop-off location, and handoff counters.",
     responses={404: {"model": APIError}},
 )
 async def get_order(
     order_id: str,
     city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
-):
+) -> OrderDetailResponse:
     order = db.execute(
         select(Order).where(Order.id == order_id, Order.city_id == city.id)
     ).scalar_one_or_none()
@@ -217,26 +234,28 @@ async def get_order(
             status_code=404,
             detail={"error": "NOT_FOUND", "detail": f"Order {order_id} does not exist"},
         )
-    return {
-        "order_id": order.id,
-        "city_id": order.city_id,
-        "restaurant_id": order.restaurant_id,
-        "delivery_address": order.delivery_address,
-        "delivery_lat": order.delivery_lat,
-        "delivery_lng": order.delivery_lng,
-        "status": order.status,
-        "relay_chain": order.relay_chain,
-        "current_dropoff_id": order.current_dropoff_id,
-        "current_zone_id": order.current_zone_id,
-        "estimated_handoffs": order.estimated_handoffs,
-        "remaining_handoffs": order.remaining_handoffs,
-        "created_at": order.created_at,
-    }
+    return OrderDetailResponse(
+        order_id=order.id,
+        city_id=order.city_id,
+        restaurant_id=order.restaurant_id,
+        delivery_address=order.delivery_address,
+        delivery_lat=order.delivery_lat,
+        delivery_lng=order.delivery_lng,
+        status=order.status,
+        relay_chain=order.relay_chain,
+        current_dropoff_id=order.current_dropoff_id,
+        current_zone_id=order.current_zone_id,
+        estimated_handoffs=order.estimated_handoffs,
+        remaining_handoffs=order.remaining_handoffs,
+        created_at=order.created_at,
+    )
 
 
 @router.get(
     "/orders/{order_id}/status",
     response_model=OrderStatusResponse,
+    summary="Get order status snapshot",
+    description="Returns the current order state, active zone, active drop-off, and remaining handoffs.",
     responses={404: {"model": APIError}},
 )
 async def get_order_status(
@@ -263,13 +282,16 @@ async def get_order_status(
 
 @router.get(
     "/orders/{order_id}/relay-history",
+    response_model=RelayHistoryResponse,
+    summary="Get order relay history",
+    description="Returns chronological partner task events for the order, useful for debugging and SLA visibility.",
     responses={404: {"model": APIError}},
 )
 async def get_relay_history(
     order_id: str,
     city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
-):
+) -> RelayHistoryResponse:
     order = db.execute(
         select(Order).where(Order.id == order_id, Order.city_id == city.id)
     ).scalar_one_or_none()
@@ -281,9 +303,9 @@ async def get_relay_history(
     events = db.execute(
         select(TaskEvent).where(TaskEvent.order_id == order_id).order_by(TaskEvent.timestamp.asc())
     ).scalars().all()
-    return {
-        "order_id": order_id,
-        "history": [
+    return RelayHistoryResponse(
+        order_id=order_id,
+        history=[
             {
                 "event": e.event,
                 "partner_id": e.partner_id,
@@ -292,4 +314,4 @@ async def get_relay_history(
             }
             for e in events
         ],
-    }
+    )

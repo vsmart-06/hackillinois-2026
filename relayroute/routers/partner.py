@@ -14,7 +14,9 @@ from relayroute.schemas.partner import (
     CompleteTaskResponse,
     NextTaskResponse,
     PartnerProfileResponse,
+    PartnerStatusResponse,
     PartnerStatusUpdate,
+    PartnerTaskHistoryResponse,
 )
 from relayroute.services import relay
 
@@ -25,6 +27,8 @@ task_router = APIRouter()
 @router.get(
     "",
     response_model=PartnerProfileResponse,
+    summary="Get authenticated partner profile",
+    description="Returns profile and current assignment for the partner identified by the partner API key.",
     responses={404: {"model": APIError}},
 )
 async def get_partner_profile(
@@ -50,22 +54,27 @@ async def get_partner_profile(
 
 @router.patch(
     "/status",
+    response_model=PartnerStatusResponse,
+    summary="Update authenticated partner availability",
+    description="Updates the partner status used by dispatch (`available`, `carrying`, `offline`).",
     responses={404: {"model": APIError}},
 )
 async def update_partner_status(
     body: PartnerStatusUpdate,
     partner: Partner = Depends(verify_partner_api_key),
     db: Session = Depends(get_db),
-):
+) -> PartnerStatusResponse:
     partner.status = body.status
     if body.status != "carrying":
         partner.current_order_id = None
-    return {"partner_id": partner.id, "status": partner.status}
+    return PartnerStatusResponse(partner_id=partner.id, status=partner.status)
 
 
 @task_router.get(
     "/next-task",
     response_model=NextTaskResponse,
+    summary="Fetch next partner task",
+    description="Returns the next relay task for the authenticated partner, or `task: null` when no task is currently assigned.",
     responses={404: {"model": APIError}},
 )
 async def get_next_task(
@@ -79,6 +88,8 @@ async def get_next_task(
 @task_router.post(
     "/complete-task",
     response_model=CompleteTaskResponse,
+    summary="Complete current relay task",
+    description="Marks a relay handoff as complete, updates order/drop-off state, and may queue the next partner.",
     responses={404: {"model": APIError}, 400: {"model": APIError}},
 )
 async def complete_task(
@@ -120,18 +131,21 @@ async def complete_task(
 
 @task_router.get(
     "/task-history",
+    response_model=PartnerTaskHistoryResponse,
+    summary="Get partner task history",
+    description="Returns chronological task completion records for the authenticated partner.",
     responses={404: {"model": APIError}},
 )
 async def get_task_history(
     partner: Partner = Depends(verify_partner_api_key),
     db: Session = Depends(get_db),
-):
+) -> PartnerTaskHistoryResponse:
     events = db.execute(
         select(TaskEvent).where(TaskEvent.partner_id == partner.id).order_by(TaskEvent.timestamp.desc())
     ).scalars().all()
-    return {
-        "partner_id": partner.id,
-        "tasks": [
+    return PartnerTaskHistoryResponse(
+        partner_id=partner.id,
+        tasks=[
             {
                 "order_id": e.order_id,
                 "task_type": e.event,
@@ -140,4 +154,4 @@ async def get_task_history(
             }
             for e in events
         ],
-    }
+    )

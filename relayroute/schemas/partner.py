@@ -1,7 +1,10 @@
 """Partner schemas."""
+from __future__ import annotations
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
+from relayroute.schemas.order import Coordinates
 
 
 class PartnerStatusUpdate(BaseModel):
@@ -15,10 +18,16 @@ class PartnerRegisterRequest(BaseModel):
     city_id: str
 
 
+class PartnerZoneInfo(BaseModel):
+    id: str
+    boundaries: dict
+    dropoff_points: list[dict]
+
+
 class PartnerRegisterResponse(BaseModel):
     partner_id: str
     api_key: str
-    zone: dict
+    zone: PartnerZoneInfo
 
 
 class CompleteTaskRequest(BaseModel):
@@ -30,7 +39,7 @@ class CompleteTaskRequest(BaseModel):
 
 class NextTaskResponse(BaseModel):
     partner_id: str
-    task: dict | None
+    task: PartnerTask | None
 
 
 class CompleteTaskResponse(BaseModel):
@@ -46,4 +55,33 @@ class PartnerProfileResponse(BaseModel):
     name: str
     zone_id: str
     status: str
-    current_task: dict | None = None
+    current_task: PartnerCurrentTask | None = None
+
+
+class PartnerCurrentTask(BaseModel):
+    order_id: str
+    destination: str | None
+
+
+class PartnerTask(BaseModel):
+    order_id: str
+    dropoff_id: str | None
+    zone_id: str | None
+    coords: Coordinates | None
+
+
+class PartnerTaskHistoryItem(BaseModel):
+    order_id: str
+    task_type: str
+    completed_at: datetime
+    dropoff_id: str | None
+
+
+class PartnerTaskHistoryResponse(BaseModel):
+    partner_id: str
+    tasks: list[PartnerTaskHistoryItem]
+
+
+class PartnerStatusResponse(BaseModel):
+    partner_id: str
+    status: str

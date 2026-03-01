@@ -17,7 +17,12 @@ from relayroute.schemas.dropoff import (
 router = APIRouter()
 
 
-@router.get("/dropoffs")
+@router.get(
+    "/dropoffs",
+    response_model=list[DropoffSummary],
+    summary="List drop-off points for the authenticated city",
+    description="Returns all drop-off points in the city from the app API key, including status and capacity fields.",
+)
 async def list_dropoffs(
     city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
@@ -31,6 +36,8 @@ async def list_dropoffs(
 @router.get(
     "/dropoffs/{dropoff_id}",
     response_model=DropoffDetailResponse,
+    summary="Get drop-off point details",
+    description="Returns a drop-off point plus active orders currently routed through it.",
     responses={404: {"model": APIError}},
 )
 async def get_dropoff(
@@ -69,6 +76,8 @@ async def get_dropoff(
 @router.patch(
     "/dropoffs/{dropoff_id}/status",
     response_model=DropoffStatusResponse,
+    summary="Update drop-off status",
+    description="Manually sets drop-off status (`active`, `full`, or `disabled`) and returns impacted in-transit order IDs.",
     responses={404: {"model": APIError}},
 )
 async def update_dropoff_status(

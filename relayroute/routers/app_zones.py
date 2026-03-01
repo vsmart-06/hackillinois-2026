@@ -7,12 +7,24 @@ from relayroute.database import get_db
 from relayroute.middleware.auth import verify_api_key
 from relayroute.models import City, DropoffPoint, Order, Partner, Restaurant, Zone
 from relayroute.schemas.common import APIError
-from relayroute.schemas.zone import ZoneLoadResponse, ZoneSummary
+from relayroute.schemas.zone import (
+    ZoneDetailResponse,
+    ZoneDropoffsResponse,
+    ZoneLoadResponse,
+    ZoneOrdersResponse,
+    ZonePartnersResponse,
+    ZoneSummary,
+)
 
 router = APIRouter()
 
 
-@router.get("/zones")
+@router.get(
+    "/zones",
+    response_model=list[ZoneSummary],
+    summary="List zones for the authenticated city",
+    description="Returns all zones configured for the city resolved from the app API key.",
+)
 async def list_zones(
     city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
@@ -25,13 +37,16 @@ async def list_zones(
 
 @router.get(
     "/zones/{zone_id}",
+    response_model=ZoneDetailResponse,
+    summary="Get full zone details",
+    description="Returns zone boundaries and live resources in the zone, including restaurants, drop-off points, active partners, and active orders.",
     responses={404: {"model": APIError}},
 )
 async def get_zone(
     zone_id: str,
     city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
-):
+) -> ZoneDetailResponse:
     zone = db.execute(
         select(Zone).where(Zone.id == zone_id, Zone.city_id == city.id)
     ).scalar_one_or_none()
@@ -53,28 +68,31 @@ async def get_zone(
     orders = db.execute(
         select(Order).where(Order.city_id == city.id, Order.current_zone_id == zone_id)
     ).scalars().all()
-    return {
-        "zone_id": zone.id,
-        "city_id": zone.city_id,
-        "name": zone.name,
-        "boundaries": zone.boundaries,
-        "restaurant_count": zone.restaurant_count,
-        "restaurants": [{"id": r.id, "name": r.name, "lat": r.lat, "lng": r.lng} for r in restaurants],
-        "dropoff_points": [{"id": d.id, "status": d.status, "current_load": d.current_load, "capacity": d.capacity} for d in dropoffs],
-        "active_partners": [{"partner_id": p.id, "name": p.name, "status": p.status} for p in partners],
-        "active_orders": [{"order_id": o.id, "status": o.status} for o in orders if o.status in ("pending", "in_transit")],
-    }
+    return ZoneDetailResponse(
+        zone_id=zone.id,
+        city_id=zone.city_id,
+        name=zone.name,
+        boundaries=zone.boundaries,
+        restaurant_count=zone.restaurant_count,
+        restaurants=[{"id": r.id, "name": r.name, "lat": r.lat, "lng": r.lng} for r in restaurants],
+        dropoff_points=[{"id": d.id, "status": d.status, "current_load": d.current_load, "capacity": d.capacity} for d in dropoffs],
+        active_partners=[{"partner_id": p.id, "name": p.name, "status": p.status} for p in partners],
+        active_orders=[{"order_id": o.id, "status": o.status} for o in orders if o.status in ("pending", "in_transit")],
+    )
 
 
 @router.get(
     "/zones/{zone_id}/partners",
+    response_model=ZonePartnersResponse,
+    summary="List partners assigned to a zone",
+    description="Returns all partners currently mapped to the specified zone and their real-time availability status.",
     responses={404: {"model": APIError}},
 )
 async def get_zone_partners(
     zone_id: str,
     city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
-):
+) -> ZonePartnersResponse:
     zone = db.execute(select(Zone).where(Zone.id == zone_id, Zone.city_id == city.id)).scalar_one_or_none()
     if zone is None:
         raise HTTPException(
@@ -84,21 +102,24 @@ async def get_zone_partners(
     partners = db.execute(
         select(Partner).where(Partner.city_id == city.id, Partner.zone_id == zone_id)
     ).scalars().all()
-    return {
-        "zone_id": zone_id,
-        "partners": [{"partner_id": p.id, "name": p.name, "status": p.status} for p in partners],
-    }
+    return ZonePartnersResponse(
+        zone_id=zone_id,
+        partners=[{"partner_id": p.id, "name": p.name, "status": p.status} for p in partners],
+    )
 
 
 @router.get(
     "/zones/{zone_id}/dropoffs",
+    response_model=ZoneDropoffsResponse,
+    summary="List zone drop-off points",
+    description="Returns all drop-off points in a zone with their current load and status.",
     responses={404: {"model": APIError}},
 )
 async def get_zone_dropoffs(
     zone_id: str,
     city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
-):
+) -> ZoneDropoffsResponse:
     zone = db.execute(select(Zone).where(Zone.id == zone_id, Zone.city_id == city.id)).scalar_one_or_none()
     if zone is None:
         raise HTTPException(
@@ -108,9 +129,9 @@ async def get_zone_dropoffs(
     dropoffs = db.execute(
         select(DropoffPoint).where(DropoffPoint.city_id == city.id, DropoffPoint.zone_id == zone_id)
     ).scalars().all()
-    return {
-        "zone_id": zone_id,
-        "dropoff_points": [
+    return ZoneDropoffsResponse(
+        zone_id=zone_id,
+        dropoff_points=[
             {
                 "dropoff_id": d.id,
                 "status": d.status,
@@ -121,18 +142,21 @@ async def get_zone_dropoffs(
             }
             for d in dropoffs
         ],
-    }
+    )
 
 
 @router.get(
     "/zones/{zone_id}/orders",
+    response_model=ZoneOrdersResponse,
+    summary="List active orders in a zone",
+    description="Returns active orders currently traversing the specified zone.",
     responses={404: {"model": APIError}},
 )
 async def get_zone_orders(
     zone_id: str,
     city: City = Depends(verify_api_key),
     db: Session = Depends(get_db),
-) -> dict:
+) -> ZoneOrdersResponse:
     zone = db.execute(
         select(Zone).where(Zone.id == zone_id, Zone.city_id == city.id)
     ).scalar_one_or_none()
@@ -148,9 +172,9 @@ async def get_zone_orders(
             Order.status.in_(["pending", "in_transit"]),
         )
     ).scalars().all()
-    return {
-        "zone_id": zone_id,
-        "orders": [
+    return ZoneOrdersResponse(
+        zone_id=zone_id,
+        orders=[
             {
                 "order_id": o.id,
                 "status": o.status,
@@ -159,12 +183,14 @@ async def get_zone_orders(
             }
             for o in orders
         ],
-    }
+    )
 
 
 @router.get(
     "/zones/{zone_id}/load",
     response_model=ZoneLoadResponse,
+    summary="Get zone load analytics",
+    description="Returns live utilization and capacity metrics for the zone, including drop-off, partner, and order counters.",
     responses={404: {"model": APIError}},
 )
 async def get_zone_load(
