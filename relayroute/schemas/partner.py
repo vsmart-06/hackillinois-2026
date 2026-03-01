@@ -106,7 +106,7 @@ class PartnerTask(BaseModel):
         description=(
             "The action the partner must perform. pickup_restaurant means collect from the originating restaurant. "
             "pickup_dropoff means collect from a drop-off box. deliver_dropoff means deposit at the next drop-off box "
-            "in the relay chain."
+            "in the relay chain. deliver_destination means directly deliver to the final customer destination."
         )
     )
     instructions: str = Field(

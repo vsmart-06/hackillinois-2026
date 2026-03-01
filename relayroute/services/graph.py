@@ -93,7 +93,7 @@ def path_to_relay_chain(
     for zone_id in path:
         candidates = dropoffs_by_zone.get(zone_id, [])
         if not candidates:
-            continue
+            raise RuntimeError(f"No active dropoff available in zone {zone_id}")
         dp = min(candidates, key=_score_dropoff)
         relay_chain.append(
             {

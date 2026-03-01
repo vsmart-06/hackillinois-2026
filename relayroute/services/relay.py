@@ -161,7 +161,16 @@ async def advance_relay(
 def _build_next_task(order: Order, task_type: str = "deliver_dropoff") -> dict | None:
     chain = order.relay_chain or []
     if not chain:
-        return None
+        if order.delivery_lat is None or order.delivery_lng is None:
+            return None
+        return {
+            "task_type": "deliver_destination",
+            "instructions": f"Deliver order {order.id} directly to the destination address.",
+            "order_id": order.id,
+            "dropoff_id": "destination",
+            "zone_id": order.current_zone_id,
+            "coords": {"lat": float(order.delivery_lat), "lng": float(order.delivery_lng)},
+        }
     step = None
     if order.current_dropoff_id:
         for s in chain:

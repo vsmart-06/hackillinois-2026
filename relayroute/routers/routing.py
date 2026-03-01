@@ -92,6 +92,14 @@ async def get_routing_path(
             + (destination_lng - _zone_centroid(z)[1]) ** 2,
         )
 
+    # Same-zone routes are direct destination deliveries (no relay handoff path).
+    if origin_zone.id == destination_zone.id:
+        return RoutingResponse(
+            relay_chain=[],
+            total_handoffs=0,
+            edge_weights=[],
+        )
+
     travel_times: dict[tuple[str, str], float] = {}
     for z1 in zones:
         for z2 in zones:
@@ -110,13 +118,19 @@ async def get_routing_path(
             detail={"error": "ROUTING_FAILED", "detail": str(exc)},
         ) from exc
 
-    relay_chain = graph.path_to_relay_chain(
-        path=path,
-        zones={z.id: z for z in zones},
-        dropoffs={d.id: d for d in dropoffs},
-        destination_lat=destination_lat,
-        destination_lng=destination_lng,
-    )
+    try:
+        relay_chain = graph.path_to_relay_chain(
+            path=path,
+            zones={z.id: z for z in zones},
+            dropoffs={d.id: d for d in dropoffs},
+            destination_lat=destination_lat,
+            destination_lng=destination_lng,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "ROUTING_FAILED", "detail": str(exc)},
+        ) from exc
 
     edge_weights: list[EdgeWeight] = []
     for i in range(len(path) - 1):

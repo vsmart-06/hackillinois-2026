@@ -125,40 +125,51 @@ async def create_order(
             + (destination["lng"] - _zone_centroid(z)[1]) ** 2,
         )
 
-    dropoffs = db.execute(
-        select(DropoffPoint).where(
-            DropoffPoint.city_id == body.city_id,
-            DropoffPoint.status == "active",
-        )
-    ).scalars().all()
+    if origin_zone.id == destination_zone.id:
+        # Same-zone deliveries should be direct destination drops (no relay handoffs).
+        relay_chain = []
+        estimated_handoffs = 0
+    else:
+        dropoffs = db.execute(
+            select(DropoffPoint).where(
+                DropoffPoint.city_id == body.city_id,
+                DropoffPoint.status == "active",
+            )
+        ).scalars().all()
 
-    # Travel times between zone centroids.
-    travel_times: dict[tuple[str, str], float] = {}
-    for z1 in zones:
-        for z2 in zones:
-            if z1.id == z2.id:
-                continue
-            c1 = _zone_centroid(z1)
-            c2 = _zone_centroid(z2)
-            travel_times[(z1.id, z2.id)] = await maps.get_travel_time(c1, c2)
+        # Travel times between zone centroids.
+        travel_times: dict[tuple[str, str], float] = {}
+        for z1 in zones:
+            for z2 in zones:
+                if z1.id == z2.id:
+                    continue
+                c1 = _zone_centroid(z1)
+                c2 = _zone_centroid(z2)
+                travel_times[(z1.id, z2.id)] = await maps.get_travel_time(c1, c2)
 
-    routing_graph = graph.build_graph(zones=zones, dropoff_points=dropoffs, travel_times=travel_times)
-    try:
-        path, _ = graph.dijkstra(routing_graph, origin_zone.id, destination_zone.id)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "ROUTING_FAILED", "detail": str(exc)},
-        ) from exc
+        routing_graph = graph.build_graph(zones=zones, dropoff_points=dropoffs, travel_times=travel_times)
+        try:
+            path, _ = graph.dijkstra(routing_graph, origin_zone.id, destination_zone.id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "ROUTING_FAILED", "detail": str(exc)},
+            ) from exc
 
-    relay_chain = graph.path_to_relay_chain(
-        path=path,
-        zones={z.id: z for z in zones},
-        dropoffs={d.id: d for d in dropoffs},
-        destination_lat=float(destination["lat"]),
-        destination_lng=float(destination["lng"]),
-    )
-    estimated_handoffs = max(0, len(relay_chain) - 1)
+        try:
+            relay_chain = graph.path_to_relay_chain(
+                path=path,
+                zones={z.id: z for z in zones},
+                dropoffs={d.id: d for d in dropoffs},
+                destination_lat=float(destination["lat"]),
+                destination_lng=float(destination["lng"]),
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "ROUTING_FAILED", "detail": str(exc)},
+            ) from exc
+        estimated_handoffs = max(0, len(relay_chain) - 1)
 
     order = Order(
         id=generate_id("ord"),
