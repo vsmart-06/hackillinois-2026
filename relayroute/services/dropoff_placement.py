@@ -1,5 +1,5 @@
 """
-Drop-off point placement on zone borders.
+Drop-off point placement sampled inside zone polygons.
 """
 from __future__ import annotations
 
@@ -27,19 +27,40 @@ def _ring(zone: dict) -> list[tuple[float, float]]:
     return [(float(p[1]), float(p[0])) for p in ring if len(p) >= 2]
 
 
-def _segment_len_km(a: tuple[float, float], b: tuple[float, float]) -> float:
-    lat1, lng1 = a
-    lat2, lng2 = b
-    mean_lat = math.radians((lat1 + lat2) / 2.0)
-    d_lat_km = (lat2 - lat1) * 111.0
-    d_lng_km = (lng2 - lng1) * (111.320 * max(math.cos(mean_lat), 0.1))
-    return math.sqrt(d_lat_km * d_lat_km + d_lng_km * d_lng_km)
+def _point_in_polygon(lat: float, lng: float, polygon_lat_lng: list[tuple[float, float]]) -> bool:
+    if len(polygon_lat_lng) < 3:
+        return False
+    inside = False
+    j = len(polygon_lat_lng) - 1
+    for i in range(len(polygon_lat_lng)):
+        yi, xi = polygon_lat_lng[i]
+        yj, xj = polygon_lat_lng[j]
+        intersect = ((yi > lat) != (yj > lat)) and (
+            lng < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi
+        )
+        if intersect:
+            inside = not inside
+        j = i
+    return inside
 
 
-def _offset_km_to_deg(lat: float, dy_km: float, dx_km: float) -> tuple[float, float]:
-    d_lat = dy_km / 111.0
-    d_lng = dx_km / (111.320 * max(math.cos(math.radians(lat)), 0.1))
-    return d_lat, d_lng
+def _bbox_lat_lng(points: list[tuple[float, float]]) -> tuple[float, float, float, float]:
+    lats = [p[0] for p in points]
+    lngs = [p[1] for p in points]
+    return (min(lats), max(lats), min(lngs), max(lngs))
+
+
+def _polygon_area_km2(points: list[tuple[float, float]]) -> float:
+    if len(points) < 3:
+        return 0.0
+    # Shoelace area in degrees^2 then rough conversion to km^2.
+    area = 0.0
+    for i in range(len(points)):
+        lat1, lng1 = points[i]
+        lat2, lng2 = points[(i + 1) % len(points)]
+        area += lng1 * lat2 - lng2 * lat1
+    deg2 = abs(area) / 2.0
+    return deg2 * (111.0 * 111.0)
 
 
 def _dedupe(points: list[dict]) -> list[dict]:
@@ -59,7 +80,7 @@ def place_dropoff_points(
     spacing_km: float,
 ) -> list[dict]:
     """
-    Place drop-off points along each zone boundary with spacing and light random jitter.
+    Place drop-off points randomly inside each zone polygon.
     Also place one at each zone centroid as fallback.
     Return list of {lat, lng, zone_id}.
     """
@@ -70,44 +91,29 @@ def place_dropoff_points(
         result.append({"lat": float(c_lat), "lng": float(c_lng), "zone_id": zone_id})
 
         ring = _ring(z)
-        if len(ring) < 2:
+        if len(ring) < 3:
             continue
 
         rng = random.Random(f"{zone_id}:{len(ring)}:{round(spacing_km, 3)}")
-        for i in range(len(ring) - 1):
-            a = ring[i]
-            b = ring[i + 1]
-            seg_km = _segment_len_km(a, b)
-            steps = max(1, int(seg_km / max(spacing_km, 0.05)))
-            for k in range(steps):
-                t = (k + 0.5) / steps
-                lat = a[0] + t * (b[0] - a[0])
-                lng = a[1] + t * (b[1] - a[1])
+        area_km2 = _polygon_area_km2(ring)
+        target = max(4, min(35, int(round(area_km2 / max(spacing_km * spacing_km, 0.02)))))
+        min_lat, max_lat, min_lng, max_lng = _bbox_lat_lng(ring)
 
-                # Move slightly inward toward centroid, then add tiny tangent jitter
-                v_lat = c_lat - lat
-                v_lng = c_lng - lng
-                mag = math.sqrt(v_lat * v_lat + v_lng * v_lng) or 1e-9
-                n_lat = v_lat / mag
-                n_lng = v_lng / mag
-                inward_km = 0.04 + 0.05 * rng.random()  # 40-90m inward
-                dlat_in, dlng_in = _offset_km_to_deg(lat, n_lat * inward_km, n_lng * inward_km)
-
-                # Tangent direction for visual variation (about +/- 30m)
-                t_lat = -(b[1] - a[1])
-                t_lng = b[0] - a[0]
-                t_mag = math.sqrt(t_lat * t_lat + t_lng * t_lng) or 1e-9
-                t_lat /= t_mag
-                t_lng /= t_mag
-                tangent_km = (rng.random() - 0.5) * 0.06
-                dlat_t, dlng_t = _offset_km_to_deg(lat, t_lat * tangent_km, t_lng * tangent_km)
-
-                result.append(
-                    {
-                        "lat": float(lat + dlat_in + dlat_t),
-                        "lng": float(lng + dlng_in + dlng_t),
-                        "zone_id": zone_id,
-                    }
-                )
+        # Rejection sample random points inside polygon (strictly interior-ish).
+        attempts = 0
+        accepted = 0
+        max_attempts = target * 80
+        while accepted < target and attempts < max_attempts:
+            attempts += 1
+            lat = rng.uniform(min_lat, max_lat)
+            lng = rng.uniform(min_lng, max_lng)
+            if not _point_in_polygon(lat, lng, ring):
+                continue
+            # Keep samples away from centroid slightly for nicer spread.
+            radial = math.sqrt((lat - c_lat) ** 2 + (lng - c_lng) ** 2)
+            if radial < 0.0003 and rng.random() < 0.7:
+                continue
+            result.append({"lat": float(lat), "lng": float(lng), "zone_id": zone_id})
+            accepted += 1
 
     return _dedupe(result)
