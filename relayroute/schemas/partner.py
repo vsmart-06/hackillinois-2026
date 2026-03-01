@@ -31,10 +31,8 @@ class PartnerRegisterResponse(BaseModel):
 
 
 class CompleteTaskRequest(BaseModel):
-    city_id: str | None = None
     order_id: str
-    completed_dropoff_id: str | None = None
-    dropoff_point_id: str | None = None
+    dropoff_point_id: str
 
 
 class NextTaskResponse(BaseModel):
@@ -64,6 +62,8 @@ class PartnerCurrentTask(BaseModel):
 
 
 class PartnerTask(BaseModel):
+    task_type: str
+    instructions: str
     order_id: str
     dropoff_id: str | None
     zone_id: str | None

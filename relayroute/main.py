@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -28,10 +29,6 @@ OPENAPI_TAGS = [
     {
         "name": "Drop-off Points",
         "description": "Monitor and manage the physical handoff boxes that connect zones in the relay network.",
-    },
-    {
-        "name": "Partner Management",
-        "description": "Register delivery partners and manage their zone assignment and real-time availability status.",
     },
     {
         "name": "Partner",
@@ -64,11 +61,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+    )
+
+    components = schema.setdefault("components", {})
+    security_schemes = components.setdefault("securitySchemes", {})
+    security_schemes["ApiKeyAuth"] = {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "API key required for authenticated app and partner endpoints.",
+    }
+
+    paths = schema.get("paths", {})
+    for path, operations in paths.items():
+        for method, operation in operations.items():
+            if method not in {"get", "post", "patch", "put", "delete"}:
+                continue
+            if path == "/app/setup" and method == "post":
+                continue
+            operation["security"] = [{"ApiKeyAuth": []}]
+
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
+
 app.include_router(app_setup.router, prefix="/app", tags=["City Setup"])
 app.include_router(app_zones.router, prefix="/app", tags=["Zones"])
 app.include_router(app_orders.router, prefix="/app", tags=["Orders"])
 app.include_router(app_dropoffs.router, prefix="/app", tags=["Drop-off Points"])
-app.include_router(app_partners.router, prefix="/partner", tags=["Partner Management"])
+app.include_router(app_partners.router, prefix="/partner", tags=["Partner"])
 app.include_router(partner.router, prefix="/partner", tags=["Partner"])
 app.include_router(partner.task_router, prefix="/partner", tags=["Task Management"])
 app.include_router(routing.router, prefix="/app/routing", tags=["Routing"])

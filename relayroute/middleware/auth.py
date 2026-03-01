@@ -14,19 +14,13 @@ def _hash_api_key(api_key: str) -> str:
 
 
 async def verify_api_key(
-    x_api_key: str | None = Header(None, alias="X-API-Key"),
+    x_api_key: str = Header(..., alias="X-API-Key"),
     db: Session = Depends(get_db),
 ) -> City:
     """
     Verify X-API-Key against stored hashed city api_key.
     Returns matched City object or raises 401.
     """
-    if not x_api_key:
-        raise HTTPException(
-            status_code=401,
-            detail={"error": "UNAUTHORIZED", "detail": "Missing API key"},
-        )
-
     hashed = _hash_api_key(x_api_key)
     city = db.execute(select(City).where(City.api_key == hashed)).scalar_one_or_none()
     if city is None:
@@ -38,18 +32,13 @@ async def verify_api_key(
 
 
 async def verify_partner_api_key(
-    x_api_key: str | None = Header(None, alias="X-API-Key"),
+    x_api_key: str = Header(..., alias="X-API-Key"),
     db: Session = Depends(get_db),
 ) -> Partner:
     """
     Verify X-API-Key against stored hashed partner api_key.
     Returns matched Partner object or raises 401.
     """
-    if not x_api_key:
-        raise HTTPException(
-            status_code=401,
-            detail={"error": "UNAUTHORIZED", "detail": "Missing API key"},
-        )
     hashed = _hash_api_key(x_api_key)
     partner = db.execute(select(Partner).where(Partner.api_key == hashed)).scalar_one_or_none()
     if partner is None:

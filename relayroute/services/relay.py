@@ -158,7 +158,7 @@ async def advance_relay(
     }
 
 
-def _build_next_task(order: Order) -> dict | None:
+def _build_next_task(order: Order, task_type: str = "deliver_dropoff") -> dict | None:
     chain = order.relay_chain or []
     if not chain:
         return None
@@ -171,6 +171,11 @@ def _build_next_task(order: Order) -> dict | None:
     if step is None:
         step = chain[0]
     return {
+        "task_type": task_type,
+        "instructions": (
+            f"Move order {order.id} to drop-off {step.get('dropoff_point_id')} "
+            f"in zone {step.get('zone_id')}."
+        ),
         "order_id": order.id,
         "dropoff_id": step.get("dropoff_point_id"),
         "zone_id": step.get("zone_id"),
@@ -195,7 +200,7 @@ async def get_next_task(partner_id: str, db: Session) -> dict | None:
         ).scalar_one_or_none()
         if order is None:
             return None
-        return _build_next_task(order)
+        return _build_next_task(order, task_type="deliver_dropoff")
 
     # Try to pick a waiting order in this partner's zone.
     candidates = db.execute(
@@ -221,5 +226,5 @@ async def get_next_task(partner_id: str, db: Session) -> dict | None:
                     timestamp=datetime.now(timezone.utc),
                 )
             )
-            return _build_next_task(order)
+            return _build_next_task(order, task_type="pickup_dropoff")
     return None

@@ -97,21 +97,10 @@ async def complete_task(
     partner: Partner = Depends(verify_partner_api_key),
     db: Session = Depends(get_db),
 ) -> CompleteTaskResponse:
-    if body.city_id and partner.city_id != body.city_id:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": "NOT_FOUND", "detail": f"Partner {partner.id} does not belong to city {body.city_id}"},
-        )
-    completed_dropoff_id = body.completed_dropoff_id or body.dropoff_point_id
-    if not completed_dropoff_id:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "BAD_REQUEST", "detail": "Either completed_dropoff_id or dropoff_point_id is required"},
-        )
     try:
         result = await relay.advance_relay(
             order_id=body.order_id,
-            completed_dropoff_id=completed_dropoff_id,
+            completed_dropoff_id=body.dropoff_point_id,
             partner_id=partner.id,
             db=db,
         )
