@@ -1,507 +1,119 @@
 # RelayRoute API
 
-A plug-and-play relay delivery infrastructure API. Enables any quick commerce
-platform to implement zone-based relay delivery — where each partner operates
-within a small geographic zone, handing off packages at shared drop-off points
-rather than completing full end-to-end deliveries.
+RelayRoute is a relay-delivery backend for quick-commerce platforms. It sets up city topology (zones, restaurants, and drop-off points), computes inter-zone paths, and coordinates partner handoffs through authenticated app and partner APIs.
 
----
-
-## Core Concepts
-
-- **City** — A configured delivery market. Set up once; all subsequent calls reference it by `city_id`.
-- **Zone** — A geographic sub-region of the city, derived automatically via DBSCAN clustering on restaurant density. No need to specify zone count upfront.
-- **Drop-off Point** — A physical handoff location on zone borders where packages are transferred between partners. Each point tracks real-time capacity state.
-- **Relay Chain** — The sequence of zones and drop-off points an order traverses from restaurant to destination, computed dynamically using Dijkstra's algorithm over a live-weighted graph.
-
----
-
-## Running the API
-
-The API needs a **PostgreSQL** database. Set `DATABASE_URL` (e.g. in a `.env` file) then start the server:
+## Run Locally
 
 ```bash
-# Copy env template and edit with your DB URL
+# from project root
 cp .env.example .env
-
-# Install and run (from project root, with venv activated)
 pip install -e .
+alembic upgrade head
 python -m uvicorn relayroute.main:app --host 127.0.0.1 --port 8000
 ```
 
-- **DATABASE_URL** — Required. Example: `postgresql://user:password@localhost:5432/relayroute`. Create the database first (e.g. `createdb relayroute`), then run migrations: `alembic upgrade head`.
-- **GOOGLE_MAPS_API_KEY** — Optional but required for city setup (Places, Distance Matrix, Geocoding).
-- **OPENAI_API_KEY** — Optional; used for AI-generated zone reasoning on setup.
+- Docs: `http://127.0.0.1:8000/docs`
+- ReDoc: `http://127.0.0.1:8000/redoc`
+- Demo UI: `http://127.0.0.1:8000/`
 
-The map UI is served at **http://localhost:8000/** when the API is running.
+## Environment Variables
 
----
+- `DATABASE_URL` (required)
+- `GOOGLE_MAPS_API_KEY` or `GOOGLE_API_KEY` (required for setup/geocoding/travel time)
+- `OPENAI_API_KEY` (optional, for zone reasoning text)
 
 ## Authentication
 
-All app-facing endpoints require an `X-API-Key` header, scoped to a specific city configuration. Partner-facing endpoints authenticate via `partner_id` bound to the same city. A key issued for Mumbai cannot place orders in Bangalore.
+RelayRoute uses `X-API-Key` headers for both app and partner surfaces.
+
+- **No auth required**
+  - `POST /app/setup`
+  - `POST /partner/register`
+- **App API key required**
+  - All other `/app/*` routes
+- **Partner API key required**
+  - All other `/partner/*` routes
 
 ```http
-X-API-Key: your-api-key-here
+X-API-Key: your_api_key_here
 ```
 
----
-
-## App-Facing Endpoints
-
-> Called by the delivery platform's backend (e.g. Blinkit's servers)
-
----
-
-### Cities
-
-#### `POST /app/setup`
-
-One-time setup for a city. Fetches restaurant locations via Google Maps, partitions the city into zones using DBSCAN clustering, and places drop-off points on zone borders. Returns the complete city topology along with an AI-generated explanation of the zone layout.
-
-DBSCAN parameters allow operators to tune clustering to their city's density. Recommended defaults: `epsilon_km: 0.5` for metro cities (Mumbai, Bangalore), `epsilon_km: 1.5` for tier-2 cities (Nagpur, Jaipur).
-
-**Request**
-```json
-{
-  "city_name": "Bangalore",
-  "epsilon_km": 0.5,
-  "min_restaurants_per_zone": 10,
-  "dropoff_spacing_km": 0.3,
-  "dropoff_capacity": 20
-}
-```
-
-**Response**
-```json
-{
-  "city_id": "city_bangalore_01",
-  "zones": [],
-  "restaurants": [],
-  "dropoff_points": [],
-  "zone_reasoning": "Zone 3 covers Koramangala due to the highest restaurant density in south Bangalore."
-}
-```
-
----
-
-#### `GET /app/setup/{city_id}`
-
-Returns the full topology for a previously configured city.
-
----
-
-#### `GET /app/cities`
-
-Lists all cities configured under this API key.
-
-**Response**
-```json
-{
-  "cities": [
-    {
-      "city_id": "city_bangalore_01",
-      "city_name": "Bangalore",
-      "zone_count": 12,
-      "active_partners": 340
-    }
-  ]
-}
-```
-
----
-
-### Zones
-
-#### `GET /app/zones?city_id={city_id}`
-
-Lists all zones for a city with summary stats.
-
-**Response**
-```json
-{
-  "zones": [
-    {
-      "zone_id": "zone_01",
-      "name": "Koramangala",
-      "restaurant_count": 42,
-      "active_partners": 8,
-      "active_orders": 5
-    }
-  ]
-}
-```
-
----
-
-#### `GET /app/zones/{zone_id}`
-
-Returns full details for a zone — boundaries, restaurant list, drop-off points, active partners, and current order load.
-
----
-
-#### `GET /app/zones/{zone_id}/partners`
-
-Returns all partners currently assigned to a zone and their real-time statuses.
-
-**Response**
-```json
-{
-  "zone_id": "zone_01",
-  "partners": [
-    {
-      "partner_id": "p_123",
-      "name": "Arjun",
-      "status": "available"
-    }
-  ]
-}
-```
-
----
-
-#### `GET /app/zones/{zone_id}/dropoffs`
-
-Returns all drop-off points in a zone with current capacity state.
-
----
-
-#### `GET /app/zones/{zone_id}/orders`
-
-Returns all active orders currently moving through a zone.
-
----
-
-#### `GET /app/zones/{zone_id}/load`
-
-Returns a real-time load snapshot — active order count and available partner count. Useful for dynamic pricing or load balancing decisions.
-
-**Response**
-```json
-{
-  "zone_id": "zone_01",
-  "active_orders": 5,
-  "available_partners": 3,
-  "load_status": "moderate"
-}
-```
-
----
-
-### Orders
-
-#### `POST /app/orders`
-
-Places a new order. Runs Dijkstra's algorithm on the current graph state — edge weights derived from live traffic data, drop-off box capacity, and zone partner availability — to compute the optimal relay chain.
-
-**Request**
-```json
-{
-  "city_id": "city_bangalore_01",
-  "restaurant_id": "r_456",
-  "delivery_address": "12 Indiranagar Main Rd, Bangalore"
-}
-```
-
-**Response**
-```json
-{
-  "order_id": "ord_789",
-  "relay_chain": [
-    {
-      "zone_id": "zone_01",
-      "dropoff_point_id": "dp_12",
-      "coords": { "lat": 12.97, "lng": 77.64 }
-    }
-  ],
-  "estimated_handoffs": 3
-}
-```
-
----
-
-#### `GET /app/orders?city_id={city_id}&status={status}`
-
-Lists all orders for a city. Filterable by `status`: `pending`, `in_transit`, `delivered`, `failed`.
-
----
-
-#### `GET /app/orders/{order_id}/status`
-
-Returns the current state of an order — which drop-off point it's at, which zone it's traversing, and estimated remaining steps.
-
-**Response**
-```json
-{
-  "order_id": "ord_789",
-  "status": "in_transit",
-  "current_dropoff": "dp_12",
-  "current_zone": "zone_02",
-  "remaining_handoffs": 2
-}
-```
-
----
-
-#### `GET /app/orders/{order_id}/relay-history`
-
-Returns the full log of every handoff on this order with timestamps. Useful for debugging, SLA tracking, and customer support.
-
-**Response**
-```json
-{
-  "order_id": "ord_789",
-  "history": [
-    {
-      "event": "picked_up_from_restaurant",
-      "partner_id": "p_123",
-      "timestamp": "2024-01-15T10:30:00Z"
-    },
-    {
-      "event": "dropped_at_dropoff",
-      "dropoff_id": "dp_12",
-      "timestamp": "2024-01-15T10:38:00Z"
-    }
-  ]
-}
-```
-
----
-
-### Drop-off Points
-
-#### `GET /app/dropoffs?city_id={city_id}`
-
-Returns all drop-off points for a city with current capacity state in a single call — useful for a full fleet snapshot without hitting individual endpoints.
-
----
-
-#### `GET /dropoff/{dropoff_id}`
-
-Returns current state of a drop-off point — status, current load, capacity, and active orders passing through it.
-
-**Response**
-```json
-{
-  "dropoff_id": "dp_12",
-  "status": "active",
-  "current_load": 14,
-  "capacity": 20,
-  "active_orders": ["ord_789", "ord_790"]
-}
-```
-
----
-
-#### `PATCH /dropoff/{dropoff_id}/status`
-
-Manually override a drop-off point's status. Intended for admin use or IoT sensor integration. Disabled points are immediately pruned from the routing graph and affected in-flight orders are surfaced for rerouting.
-
-**Request**
-```json
-{
-  "status": "active"
-}
-```
-
-> Accepted values for `status`: `active`, `full`, `disabled`
-
-**Response**
-```json
-{
-  "dropoff_id": "dp_12",
-  "status": "disabled",
-  "affected_orders": ["ord_789"]
-}
-```
-
----
-
-## Partner-Facing Endpoints
-
-> Called by the delivery partner's mobile app
-
----
-
-### Partner Management
-
-#### `POST /partner/register`
-
-Registers a new delivery partner and assigns them to a zone.
-
-**Request**
-```json
-{
-  "name": "Arjun Sharma",
-  "phone": "+91-9876543210",
-  "zone_id": "zone_01",
-  "city_id": "city_bangalore_01"
-}
-```
-
-**Response**
-```json
-{
-  "partner_id": "p_123",
-  "zone": {
-    "id": "zone_01",
-    "boundaries": [],
-    "dropoff_points": []
-  }
-}
-```
-
----
-
-#### `GET /partner/{partner_id}`
-
-Returns full partner profile — name, assigned zone, current status, and current task if carrying.
-
-**Response**
-```json
-{
-  "partner_id": "p_123",
-  "name": "Arjun Sharma",
-  "zone_id": "zone_01",
-  "status": "carrying",
-  "current_task": {
-    "order_id": "ord_789",
-    "destination": "dp_12"
-  }
-}
-```
-
----
-
-#### `PATCH /partner/{partner_id}/status`
-
-Updates partner availability. Carrying and offline partners are excluded from new task assignment.
-
-**Request**
-```json
-{
-  "status": "available"
-}
-```
-
-> Accepted values for `status`: `available`, `carrying`, `offline`
-
-**Response**
-```json
-{
-  "partner_id": "p_123",
-  "status": "available"
-}
-```
-
----
-
-### Task Management
-
-#### `GET /partner/{partner_id}/next-task`
-
-Primary polling endpoint for partner apps. Returns the next action with exact coordinates and instructions. Returns `null` for `task` if no tasks are currently available in the zone.
-
-**Response**
-```json
-{
-  "task_type": "pickup_restaurant",
-  "location": {
-    "lat": 12.97,
-    "lng": 77.64,
-    "address": "Meghana Foods, Koramangala"
-  },
-  "order_id": "ord_789",
-  "instructions": "Collect order ord_789 and drop at Box dp_12 on 80 Feet Rd"
-}
-```
-
-> Accepted values for `task_type`: `pickup_restaurant`, `pickup_dropoff`, `deliver_dropoff`
-
----
-
-#### `POST /partner/{partner_id}/complete-task`
-
-Called when a partner completes a handoff. Increments the drop-off point's load, checks capacity threshold, updates order state, and queues the next partner in the relay chain.
-
-**Request**
-```json
-{
-  "order_id": "ord_789",
-  "dropoff_point_id": "dp_12"
-}
-```
-
-**Response**
-```json
-{
-  "next_status": "available",
-  "order_status": "in_transit",
-  "dropoff_status": "active"
-}
-```
-
----
-
-#### `GET /partner/{partner_id}/task-history`
-
-Returns a paginated log of all tasks completed by this partner.
-
-**Response**
-```json
-{
-  "partner_id": "p_123",
-  "tasks": [
-    {
-      "order_id": "ord_789",
-      "task_type": "pickup_restaurant",
-      "completed_at": "2024-01-15T10:38:00Z"
-    }
-  ]
-}
-```
-
----
-
-## Routing (Inspectable)
-
-#### `GET /routing/path`
-
-Exposes the core routing algorithm directly. Runs Dijkstra's algorithm on the live-weighted graph — edge weights derived from real-time Google Maps traffic data, drop-off point capacity, and zone partner availability. Full or disabled boxes are pruned from the graph before the algorithm runs.
-
-The `edge_weights` field in the response is purely for developer transparency — it lets consuming apps understand why a particular path was chosen, aiding debugging and trust.
-
-**Request**
-```json
-{
-  "city_id": "city_bangalore_01",
-  "origin": { "lat": 12.93, "lng": 77.61 },
-  "destination": { "lat": 12.97, "lng": 77.64 }
-}
-```
-
-**Response**
-```json
-{
-  "relay_chain": [
-    {
-      "zone_id": "zone_01",
-      "dropoff_point_id": "dp_12",
-      "coords": { "lat": 12.95, "lng": 77.62 }
-    }
-  ],
-  "total_handoffs": 3,
-  "edge_weights": [
-    {
-      "from": "zone_01",
-      "to": "zone_02",
-      "weight": 4.2,
-      "factors": {
-        "traffic": 2.1,
-        "capacity_penalty": 0.0,
-        "partner_availability_penalty": 2.1
-      }
-    }
-  ]
-}
-```
+## Endpoint Reference (Current)
+
+### City Setup (`/app`)
+
+- `POST /app/setup`  
+  Initialize a city: discover restaurants, generate zones, place drop-off points, and return the first app API key.
+- `GET /app/setup`  
+  Get full topology for the city tied to the app API key.
+- `GET /app/cities`  
+  Return the single city account mapped to the app API key (1:1 mapping).
+
+### Zones (`/app`)
+
+- `GET /app/zones`  
+  List all zones in the authenticated city.
+- `GET /app/zones/{zone_id}`  
+  Full zone detail: boundaries, restaurants, drop-offs, active partners, active orders.
+- `GET /app/zones/{zone_id}/partners`  
+  List partners assigned to the zone.
+- `GET /app/zones/{zone_id}/dropoffs`  
+  List drop-off points in the zone.
+- `GET /app/zones/{zone_id}/orders`  
+  List active orders currently traversing the zone.
+- `GET /app/zones/{zone_id}/load`  
+  Zone utilization and live load analytics.
+
+### Orders (`/app`)
+
+- `POST /app/orders`  
+  Create an order, geocode destination, compute relay chain, and initialize relay dispatch.  
+  If origin and destination resolve to the same zone, it becomes direct delivery (`relay_chain=[]`, `estimated_handoffs=0`).
+- `GET /app/orders`  
+  List city orders. Optional query: `status`.
+- `GET /app/orders/{order_id}`  
+  Full order payload including relay chain and current state.
+- `GET /app/orders/{order_id}/status`  
+  Compact status snapshot for polling.
+- `GET /app/orders/{order_id}/relay-history`  
+  Chronological task/handoff events for the order.
+
+### Drop-off Points (`/app`)
+
+- `GET /app/dropoffs`  
+  List all drop-off points in the authenticated city.
+- `GET /app/dropoffs/{dropoff_id}`  
+  Get drop-off detail plus active orders that touch it.
+- `PATCH /app/dropoffs/{dropoff_id}/status`  
+  Set status (`active`, `full`, `disabled`) and return affected in-transit orders.
+
+### Routing (`/app/routing`)
+
+- `GET /app/routing/path`  
+  Inspect computed relay path between origin and destination coordinates.  
+  Query params: `origin_lat`, `origin_lng`, `destination_lat`, `destination_lng`.
+
+### Partner (`/partner`)
+
+- `POST /partner/register`  
+  Register partner in a zone and return first partner API key.
+- `GET /partner`  
+  Get authenticated partner profile + current assignment.
+- `PATCH /partner/status`  
+  Update authenticated partner status (`available`, `carrying`, `offline`).
+
+### Task Management (`/partner`)
+
+- `GET /partner/next-task`  
+  Poll next task for authenticated partner (`task` can be `null`).
+- `POST /partner/complete-task`  
+  Complete current handoff task and trigger relay progression.
+- `GET /partner/task-history`  
+  Get authenticated partner task history.
+
+## Notes on Relay Behavior
+
+- Zone path is computed via Dijkstra over zone adjacency.
+- Relay checkpoints are chosen per hop in the **next zone** on the path.
+- For each hop, checkpoint selection is based on proximity to the **current handoff location** (origin first, then previous checkpoint).
+- Same-zone orders bypass relay and use direct delivery.
