@@ -1,0 +1,110 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Sora:wght@600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 30% 96%;
+    --foreground: 218 58% 18%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 218 58% 18%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 218 58% 18%;
+
+    --primary: 20 100% 51%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 20% 92%;
+    --secondary-foreground: 218 58% 18%;
+
+    --muted: 220 15% 94%;
+    --muted-foreground: 218 20% 46%;
+
+    --accent: 218 58% 18%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 20 100% 51%;
+
+    --radius: 0.75rem;
+
+    --chat-user: 218 58% 18%;
+    --chat-user-foreground: 0 0% 100%;
+    --chat-bot: 220 15% 94%;
+    --chat-bot-foreground: 218 58% 18%;
+
+    --sidebar-background: 218 58% 18%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 20 100% 51%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 218 50% 24%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 218 45% 25%;
+    --sidebar-ring: 20 100% 51%;
+    --sidebar-muted: 218 30% 40%;
+  }
+
+  .dark {
+    --background: 218 58% 8%;
+    --foreground: 220 15% 92%;
+
+    --card: 218 50% 12%;
+    --card-foreground: 220 15% 92%;
+
+    --popover: 218 50% 12%;
+    --popover-foreground: 220 15% 92%;
+
+    --primary: 20 100% 51%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 218 40% 16%;
+    --secondary-foreground: 220 15% 85%;
+
+    --muted: 218 35% 16%;
+    --muted-foreground: 218 15% 55%;
+
+    --accent: 20 100% 51%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 218 35% 18%;
+    --input: 218 35% 18%;
+    --ring: 20 100% 51%;
+
+    --chat-user: 20 100% 51%;
+    --chat-user-foreground: 0 0% 100%;
+    --chat-bot: 218 40% 16%;
+    --chat-bot-foreground: 220 15% 85%;
+
+    --sidebar-background: 218 58% 10%;
+    --sidebar-foreground: 220 15% 92%;
+    --sidebar-primary: 20 100% 51%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 218 45% 16%;
+    --sidebar-accent-foreground: 220 15% 92%;
+    --sidebar-border: 218 40% 14%;
+    --sidebar-ring: 20 100% 51%;
+    --sidebar-muted: 218 20% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-family: 'DM Sans', system-ui, sans-serif;
+  }
+}
